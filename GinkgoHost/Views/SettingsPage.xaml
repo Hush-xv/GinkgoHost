@@ -1,0 +1,40 @@
+<UserControl x:Class="GinkgoHost.Views.SettingsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="4,4,4,12" MaxWidth="640" HorizontalAlignment="Left">
+
+            <TextBlock Text="外观" FontSize="15" FontWeight="SemiBold" Margin="4,0,0,6" />
+            <ui:Card Margin="0,0,0,14">
+                <StackPanel Margin="4">
+                    <TextBlock Text="主题" Opacity="0.75" />
+                    <ComboBox x:Name="CmbTheme" MinWidth="160" Margin="0,4,0,0" SelectionChanged="CmbTheme_SelectionChanged">
+                        <ComboBoxItem Content="Dark（默认）" />
+                        <ComboBoxItem Content="Light" />
+                    </ComboBox>
+                </StackPanel>
+            </ui:Card>
+
+            <TextBlock Text="连接参数记忆" FontSize="15" FontWeight="SemiBold" Margin="4,0,0,6" />
+            <ui:Card Margin="0,0,0,14">
+                <StackPanel Margin="4">
+                    <TextBlock Text="通道、速率、上次从机地址会随操作自动保存，重启后恢复。"
+                               Opacity="0.85" TextWrapping="Wrap" />
+                    <TextBlock x:Name="TxtSettingsPath" Opacity="0.45" Margin="0,8,0,0"
+                               FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:Card>
+
+            <TextBlock Text="关于" FontSize="15" FontWeight="SemiBold" Margin="4,0,0,6" />
+            <ui:Card>
+                <StackPanel Margin="4">
+                    <TextBlock Text="GinkgoHost · 复刻 Binho Mission Control 交互布局" Opacity="0.85" />
+                    <TextBlock Text="协议引擎：ViewTool Ginkgo_Driver.dll · UI：WPF + WPF-UI (Fluent)"
+                               Opacity="0.55" Margin="0,4,0,0" />
+                </StackPanel>
+            </ui:Card>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

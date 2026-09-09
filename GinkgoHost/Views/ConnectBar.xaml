@@ -1,0 +1,16 @@
+<UserControl x:Class="GinkgoHost.Views.ConnectBar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <ui:Card Margin="0,0,0,10">
+        <DockPanel>
+            <TextBlock x:Name="TxtState" Text="Connect to a Host Adapter"
+                       VerticalAlignment="Center" Opacity="0.85" Margin="12,0,0,0" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <ui:Button x:Name="BtnConnect" Content="连接适配器" Appearance="Primary"
+                           Click="BtnConnect_Click" Margin="0,0,8,0" />
+                <ui:Button x:Name="BtnDisconnect" Content="断开" Click="BtnDisconnect_Click" />
+            </StackPanel>
+        </DockPanel>
+    </ui:Card>
+</UserControl>

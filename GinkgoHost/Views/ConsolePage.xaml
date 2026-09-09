@@ -1,0 +1,23 @@
+<UserControl x:Class="GinkgoHost.Views.ConsolePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <DockPanel Margin="4,4,4,12">
+        <TextBlock DockPanel.Dock="Top" Opacity="0.6" Margin="4,0,0,8"
+                   Text="help 查看命令 · ↑/↓ 翻历史 · read 50 8 / write 50 00 de ad / scan / speed 400 / connect" />
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <TextBlock Text="&gt;" FontFamily="Consolas" VerticalAlignment="Center" Margin="0,0,6,0"
+                       Foreground="#9a86fd" />
+            <ui:TextBox x:Name="TxtIn" FontFamily="Consolas" KeyDown="TxtIn_KeyDown"
+                        PlaceholderText="输入命令，回车执行" />
+        </DockPanel>
+        <ListBox x:Name="LstOut" FontFamily="Consolas" FontSize="13"
+                 Background="#2a2734" Padding="8">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding Line}" Foreground="{Binding Brush}" TextWrapping="Wrap" />
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </DockPanel>
+</UserControl>

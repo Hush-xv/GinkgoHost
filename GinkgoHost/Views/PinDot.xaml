@@ -1,0 +1,9 @@
+<UserControl x:Class="GinkgoHost.Views.PinDot"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Orientation="Horizontal" Margin="0,0,18,0">
+        <Ellipse x:Name="Dot" Width="14" Height="14" VerticalAlignment="Center" />
+        <TextBlock x:Name="TxtSignal" Text="SDA" VerticalAlignment="Center" Margin="6,0,0,0"
+                   FontFamily="Consolas" />
+    </StackPanel>
+</UserControl>
