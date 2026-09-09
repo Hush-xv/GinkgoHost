@@ -225,62 +225,86 @@
 
                     <Grid Grid.Row="2">
                         <!-- 寄存器表 -->
-                        <DataGrid x:Name="GridReg" AutoGenerateColumns="False" CanUserAddRows="False"
-                                  HeadersVisibility="Column" MinHeight="200"
-                                  RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
-                                  FontFamily="Consolas" FontSize="12"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Auto">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="76" />
-                                <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="50" />
-                                <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="120" />
-                                <DataGridTemplateColumn Header="读写" Width="70">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <ComboBox SelectedIndex="{Binding Dir, Converter={StaticResource DirIndex}}" FontSize="12">
-                                                <ComboBoxItem Content="R" />
-                                                <ComboBoxItem Content="W" />
-                                            </ComboBox>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="60"
-                                                    ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
-                                <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="110" />
-                                <DataGridTemplateColumn Header="执行" Width="100">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <StackPanel Orientation="Horizontal">
-                                                <Button Content="读" Click="BtnRowRead_Click" Width="40" Padding="2" Margin="2" />
-                                                <Button Content="写" Click="BtnRowWrite_Click" Width="40" Padding="2" Margin="2" />
-                                            </StackPanel>
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                            </DataGrid.Columns>
-                        </DataGrid>
+                        <Grid x:Name="RegHost">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition />
+                            </Grid.RowDefinitions>
+                            <DockPanel Margin="0,0,0,6" LastChildFill="False">
+                                <ui:Button x:Name="BtnAddRow" Content="添加行" Click="BtnAddRow_Click" />
+                                <ui:Button x:Name="BtnDelRow" Content="删除选中" Click="BtnDelRow_Click" Margin="8,0,12,0" />
+                                <ui:Button x:Name="BtnReadAll" Content="一键读取全部" Appearance="Primary"
+                                           Click="BtnReadAll_Click" MinWidth="110" DockPanel.Dock="Right" />
+                            </DockPanel>
+                            <DataGrid x:Name="GridReg" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False"
+                                      HeadersVisibility="Column" MinHeight="200"
+                                      RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
+                                      FontFamily="Consolas" FontSize="12"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="76" />
+                                    <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="50" />
+                                    <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="120" />
+                                    <DataGridTemplateColumn Header="读写" Width="70">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <ComboBox SelectedIndex="{Binding Dir, Converter={StaticResource DirIndex}}" FontSize="12">
+                                                    <ComboBoxItem Content="R" />
+                                                    <ComboBoxItem Content="W" />
+                                                </ComboBox>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="60"
+                                                        ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
+                                    <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="110" />
+                                    <DataGridTemplateColumn Header="执行" Width="100">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Button Content="读" Click="BtnRowRead_Click" Width="40" Padding="2" Margin="2" />
+                                                    <Button Content="写" Click="BtnRowWrite_Click" Width="40" Padding="2" Margin="2" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
 
                         <!-- 初始化序列 -->
-                        <DataGrid x:Name="GridInit" AutoGenerateColumns="False" CanUserAddRows="False"
-                                  HeadersVisibility="Column" Visibility="Collapsed" MinHeight="200"
-                                  RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
-                                  FontFamily="Consolas" FontSize="12">
-                            <DataGrid.Columns>
-                                <DataGridTextColumn Header="延时ms" Binding="{Binding DelayMs}" Width="70" />
-                                <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="90" />
-                                <DataGridTextColumn Header="写入数据" Binding="{Binding Value}" Width="*" />
-                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="70"
-                                                    ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
-                                <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="130" />
-                                <DataGridTemplateColumn Header="执行" Width="70">
-                                    <DataGridTemplateColumn.CellTemplate>
-                                        <DataTemplate>
-                                            <Button Content="写" Click="BtnInitRowWrite_Click" Width="40" Padding="2" Margin="2" />
-                                        </DataTemplate>
-                                    </DataGridTemplateColumn.CellTemplate>
-                                </DataGridTemplateColumn>
-                            </DataGrid.Columns>
-                        </DataGrid>
+                        <Grid x:Name="InitHost" Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition />
+                            </Grid.RowDefinitions>
+                            <DockPanel Margin="0,0,0,6" LastChildFill="False">
+                                <ui:Button x:Name="BtnAddInit" Content="添加行" Click="BtnAddInit_Click" />
+                                <ui:Button x:Name="BtnDelInit" Content="删除选中" Click="BtnDelInit_Click" Margin="8,0,12,0" />
+                                <ui:Button x:Name="BtnRunInit" Content="一键初始化" Appearance="Primary"
+                                           Click="BtnRunInit_Click" MinWidth="110" DockPanel.Dock="Right" />
+                            </DockPanel>
+                            <DataGrid x:Name="GridInit" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False"
+                                      HeadersVisibility="Column" MinHeight="200"
+                                      RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
+                                      FontFamily="Consolas" FontSize="12">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="延时ms" Binding="{Binding DelayMs}" Width="70" />
+                                    <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="90" />
+                                    <DataGridTextColumn Header="写入数据" Binding="{Binding Value}" Width="*" />
+                                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="70"
+                                                        ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
+                                    <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="130" />
+                                    <DataGridTemplateColumn Header="执行" Width="70">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <Button Content="写" Click="BtnInitRowWrite_Click" Width="40" Padding="2" Margin="2" />
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
 
                         <!-- 周期触发 -->
                         <ui:Card x:Name="PeriodHost" Visibility="Collapsed">

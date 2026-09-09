@@ -132,8 +132,8 @@ public partial class I2cPage : UserControl
 
     private void ShowExtSub(string which)
     {
-        GridReg.Visibility = which == "reg" ? Visibility.Visible : Visibility.Collapsed;
-        GridInit.Visibility = which == "init" ? Visibility.Visible : Visibility.Collapsed;
+        RegHost.Visibility = which == "reg" ? Visibility.Visible : Visibility.Collapsed;
+        InitHost.Visibility = which == "init" ? Visibility.Visible : Visibility.Collapsed;
         PeriodHost.Visibility = which == "period" ? Visibility.Visible : Visibility.Collapsed;
         BtnSubReg.Appearance = which == "reg" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
         BtnSubInit.Appearance = which == "init" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
