@@ -248,10 +248,10 @@
                                     <DataGridTemplateColumn Header="读写" Width="70">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
-                                                <ComboBox SelectedIndex="{Binding Dir, Converter={StaticResource DirIndex}}" FontSize="12">
-                                                    <ComboBoxItem Content="R" />
-                                                    <ComboBoxItem Content="W" />
-                                                </ComboBox>
+                                            <ComboBox SelectedIndex="{Binding Dir, Converter={StaticResource DirIndex}, Mode=TwoWay}" FontSize="12">
+                                                <ComboBoxItem Content="R" />
+                                                <ComboBoxItem Content="W" />
+                                            </ComboBox>
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
