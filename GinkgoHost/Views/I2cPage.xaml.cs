@@ -180,9 +180,16 @@ public partial class I2cPage : UserControl
         if (GridInit.SelectedItem is RegRow r) InitSeq.Remove(r);
     }
 
-    private async void BtnRowRead_Click(object sender, RoutedEventArgs e)
+    /// <summary>行执行：按该行读写属性分派（R 读 / W 写）。</summary>
+    private async void BtnRowExec_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: RegRow row }) return;
+        if (row.Dir == "W") await BtnRowWriteCore(row);
+        else await BtnRowReadCore(row);
+    }
+
+    private async Task BtnRowReadCore(RegRow row)
+    {
         try
         {
             var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), Math.Max(1, row.Len), ExtRegWidth());
@@ -198,10 +205,21 @@ public partial class I2cPage : UserControl
         }
     }
 
-    private async void BtnRowWrite_Click(object sender, RoutedEventArgs e)
+    private async Task BtnRowWriteCore(RegRow row)
     {
-        if (sender is not Button { DataContext: RegRow row }) return;
-        await ExtWriteRowAsync(row, "寄存器写");
+        try
+        {
+            byte[] data = Hex.ParseBytes(string.IsNullOrWhiteSpace(row.Value) ? "00" : row.Value);
+            var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
+            row.Status = r.Ok ? "OK" : "ERR";
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "寄存器写", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, data));
+        }
+        catch (Exception ex)
+        {
+            row.Status = "ERR";
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "寄存器写", "—", -1, 0,
+                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+        }
     }
 
     private async void BtnInitRowWrite_Click(object sender, RoutedEventArgs e)
@@ -229,7 +247,8 @@ public partial class I2cPage : UserControl
 
     private async void BtnReadAll_Click(object sender, RoutedEventArgs e)
     {
-        foreach (var row in RegTable)
+        // 只读取方向为 R 的行；W 行由行内「执行」显式写入
+        foreach (var row in RegTable.Where(r => r.Dir == "R"))
         {
             try
             {

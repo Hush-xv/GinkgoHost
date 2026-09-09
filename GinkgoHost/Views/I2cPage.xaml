@@ -258,16 +258,13 @@
                                     <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="60"
                                                         ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
                                     <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="110" />
-                                    <DataGridTemplateColumn Header="执行" Width="100">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <StackPanel Orientation="Horizontal">
-                                                    <Button Content="读" Click="BtnRowRead_Click" Width="40" Padding="2" Margin="2" />
-                                                    <Button Content="写" Click="BtnRowWrite_Click" Width="40" Padding="2" Margin="2" />
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
+                                <DataGridTemplateColumn Header="执行" Width="70">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="执行" Click="BtnRowExec_Click" Width="56" Padding="2" Margin="2" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
                                 </DataGrid.Columns>
                             </DataGrid>
                         </Grid>
