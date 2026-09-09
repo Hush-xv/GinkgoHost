@@ -285,21 +285,31 @@
                                       HeadersVisibility="Column" MinHeight="200"
                                       RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
                                       FontFamily="Consolas" FontSize="12">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="延时ms" Binding="{Binding DelayMs}" Width="70" />
-                                    <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="90" />
-                                    <DataGridTextColumn Header="写入数据" Binding="{Binding Value}" Width="*" />
-                                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="70"
-                                                        ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
-                                    <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="130" />
-                                    <DataGridTemplateColumn Header="执行" Width="70">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Button Content="写" Click="BtnInitRowWrite_Click" Width="40" Padding="2" Margin="2" />
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                </DataGrid.Columns>
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="延时ms" Binding="{Binding DelayMs}" Width="64" />
+                                <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="76" />
+                                <DataGridTextColumn Header="写入数据" Binding="{Binding Value}" Width="120" />
+                                <DataGridTemplateColumn Header="读写" Width="70">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <ComboBox SelectedIndex="{Binding Dir, Converter={StaticResource DirIndex}, Mode=TwoWay}" FontSize="12">
+                                                <ComboBoxItem Content="R" />
+                                                <ComboBoxItem Content="W" />
+                                            </ComboBox>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="60"
+                                                    ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
+                                <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="110" />
+                                <DataGridTemplateColumn Header="执行" Width="70">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <Button Content="执行" Click="BtnInitRowExec_Click" Width="56" Padding="2" Margin="2" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
                             </DataGrid>
                         </Grid>
 

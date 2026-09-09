@@ -222,25 +222,36 @@ public partial class I2cPage : UserControl
         }
     }
 
-    private async void BtnInitRowWrite_Click(object sender, RoutedEventArgs e)
+    /// <summary>初始化行执行：按行读写属性分派（R 读校验 / W 写入）。</summary>
+    private async void BtnInitRowExec_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: RegRow row }) return;
-        await ExtWriteRowAsync(row, "初始化写");
+        await ExecInitRowAsync(row);
     }
 
-    private async Task ExtWriteRowAsync(RegRow row, string op)
+    private async Task ExecInitRowAsync(RegRow row)
     {
         try
         {
-            byte[] data = Hex.ParseBytes(string.IsNullOrWhiteSpace(row.Value) ? "00" : row.Value);
-            var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
-            row.Status = r.Ok ? "OK" : "ERR";
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", op, $"0x{ExtSlave7():X2}", r.Ret, r.Ms, data));
+            if (row.Dir == "R")
+            {
+                var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), Math.Max(1, row.Len), ExtRegWidth());
+                row.Status = r.Ok ? "OK" : "ERR";
+                if (r.Ok && r.Data is not null) row.Value = Convert.ToHexString(r.Data);
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "初始化读", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, r.Data));
+            }
+            else
+            {
+                byte[] data = Hex.ParseBytes(string.IsNullOrWhiteSpace(row.Value) ? "00" : row.Value);
+                var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
+                row.Status = r.Ok ? "OK" : "ERR";
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "初始化写", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, data));
+            }
         }
         catch (Exception ex)
         {
             row.Status = "ERR";
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", op, "—", -1, 0,
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "初始化", "—", -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
         }
     }
@@ -363,11 +374,8 @@ public partial class I2cPage : UserControl
         {
             if (row.DelayMs > 0)
                 await Task.Delay(Math.Min(row.DelayMs, 10_000));
-            byte[] data = Hex.ParseBytes(string.IsNullOrWhiteSpace(row.Value) ? "00" : row.Value);
-            var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
-            row.Status = r.Ok ? "OK" : "ERR";
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "初始化", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, data));
-            if (!r.Ok) break;
+            await ExecInitRowAsync(row);
+            if (row.Status == "ERR") break; // 初始化失败即中止，后续行没有意义
         }
     }
 
