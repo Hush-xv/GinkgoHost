@@ -110,6 +110,27 @@ if (args.Length > 0 && args[0] == "--periodic")
     return 0;
 }
 
+// ── 子地址读探针：--subread <7位地址> <子地址hex> <len> <宽度1|2> [通道] ──
+// 验证扩展页使用的 ReadSubAddrAsync 服务路径。
+if (args.Length > 0 && args[0] == "--subread")
+{
+    byte saddr = Convert.ToByte(args[1].Replace("0x", ""), 16);
+    uint ssub = Convert.ToUInt32(args[2].Replace("0x", ""), 16);
+    int slen = args.Length > 3 ? int.Parse(args[3]) : 1;
+    byte sw = args.Length > 4 ? byte.Parse(args[4]) : (byte)1;
+    int sch = args.Length > 5 ? int.Parse(args[5]) : 0;
+
+    var svc = new GinkgoHost.Services.I2cService();
+    var (cnt, oret) = await svc.ConnectAsync(sch, 100_000, GinkgoDriver.VII_HCTL_MODE);
+    if (cnt <= 0 || oret != 0) { Console.WriteLine($"FAIL 适配器打开失败（{cnt}/{oret}）"); return 1; }
+    var r = await svc.ReadSubAddrAsync(saddr, ssub, slen, sw);
+    await svc.CloseAsync();
+    Console.WriteLine(r.Ok
+        ? $"PASS 子地址读 0x{saddr:X2}[0x{ssub:X4}] x{slen} = 0x{Convert.ToHexString(r.Data!)}（{r.Ms:F1} ms）"
+        : $"FAIL 子地址读失败：{GinkgoDriver.ErrorName(r.Ret)}");
+    return r.Ok ? 0 : 1;
+}
+
 // ── 常规冒烟 ──
 int failures = 0;
 

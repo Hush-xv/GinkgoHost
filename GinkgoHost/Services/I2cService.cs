@@ -238,6 +238,49 @@ public sealed class I2cService : IDisposable
         finally { _bus.Release(); }
     }
 
+    /// <summary>任意宽度子地址读：subAddrWidth=1/2 字节（16 位寄存器地址器件用 2）。</summary>
+    public async Task<OpResult> ReadSubAddrAsync(byte addr7, uint subAddr, int len, byte subAddrWidth)
+    {
+        await _bus.WaitAsync();
+        try
+        {
+            return await Task.Run(() =>
+            {
+                EnsureOpen();
+                ReinitLocked(subAddrWidth);
+                var buf = new byte[len];
+                var sw = Stopwatch.StartNew();
+                int ret = GinkgoDriver.VII_ReadBytes(GinkgoDriver.VII_USBI2C, 0, _channel,
+                    (ushort)(addr7 << 1), subAddr, buf, (ushort)len);
+                sw.Stop();
+                Dbg.Log($"VII_ReadBytes addr=0x{addr7:X2} sub=0x{subAddr:X4} w={subAddrWidth} len={len} -> {ret}");
+                return new OpResult(ret, ret == 0 ? buf : null, sw.Elapsed.TotalMilliseconds);
+            });
+        }
+        finally { _bus.Release(); }
+    }
+
+    /// <summary>任意宽度子地址写。</summary>
+    public async Task<OpResult> WriteSubAddrAsync(byte addr7, uint subAddr, byte[] data, byte subAddrWidth)
+    {
+        await _bus.WaitAsync();
+        try
+        {
+            return await Task.Run(() =>
+            {
+                EnsureOpen();
+                ReinitLocked(subAddrWidth);
+                var sw = Stopwatch.StartNew();
+                int ret = GinkgoDriver.VII_WriteBytes(GinkgoDriver.VII_USBI2C, 0, _channel,
+                    (ushort)(addr7 << 1), subAddr, data, (ushort)data.Length);
+                sw.Stop();
+                Dbg.Log($"VII_WriteBytes addr=0x{addr7:X2} sub=0x{subAddr:X4} w={subAddrWidth} len={data.Length} -> {ret}");
+                return new OpResult(ret, null, sw.Elapsed.TotalMilliseconds);
+            });
+        }
+        finally { _bus.Release(); }
+    }
+
     /// <summary>周期读：按间隔重复执行读操作。onTick 在后台线程回调（含失败结果）。
     /// 连续 5 次失败自动停止。返回 (完成次数, 停止原因)。最小间隔 10 ms。</summary>
     public async Task<(int Done, string? StopReason)> PeriodicReadAsync(int intervalMs, byte addr7, byte? reg, int len,

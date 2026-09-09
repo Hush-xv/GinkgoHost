@@ -19,6 +19,7 @@ public static class GinkgoDriver
     public const byte VII_SCTL_MODE = 2;      // 软件 I2C（GPIO 模拟，通道 0–7，时序约 100 kHz 级）
     public const byte VII_SUB_ADDR_NONE = 0;  // 无子地址（原始读写/扫描用）
     public const byte VII_SUB_ADDR_1BYTE = 1;
+    public const byte VII_SUB_ADDR_2BYTE = 2; // 16 位寄存器地址器件
 
     public const int SUCCESS = 0;
 

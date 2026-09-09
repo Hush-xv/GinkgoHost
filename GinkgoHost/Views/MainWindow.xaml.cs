@@ -12,6 +12,7 @@ public partial class MainWindow : FluentWindow
     private readonly DevicePage _devicePage = new();
     private readonly I2cPage _i2cPage = new();
     private readonly ConsolePage _consolePage = new();
+    private readonly ExtendPage _extendPage = new();
     private readonly SettingsPage _settingsPage = new();
 
     private static readonly Brush DotOn = new SolidColorBrush(Color.FromRgb(0x4c, 0xaf, 0x50));
@@ -46,7 +47,8 @@ public partial class MainWindow : FluentWindow
         {
             0 => _devicePage,
             2 => _consolePage,
-            3 => _settingsPage,
+            3 => _extendPage,
+            4 => _settingsPage,
             _ => _i2cPage // 默认落在 I2C
         };
     }

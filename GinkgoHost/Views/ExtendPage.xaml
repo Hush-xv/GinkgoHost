@@ -1,0 +1,134 @@
+<UserControl x:Class="GinkgoHost.Views.ExtendPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+    <UserControl.Resources>
+        <!-- 行状态底色：ERR 淡红，OK 不染色 -->
+        <Style x:Key="RowStatusStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Consolas" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="#81C784" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Status}" Value="ERR">
+                    <Setter Property="Foreground" Value="#EF5350" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="4,4,4,12">
+
+            <!-- ═══ 工具栏：从机地址 / 寄存器宽度 / Profile ═══ -->
+            <ui:Card Margin="0,0,0,10">
+                <StackPanel Orientation="Horizontal" Margin="4">
+                    <TextBlock Text="从机地址" VerticalAlignment="Center" Opacity="0.75"
+                               ToolTip="7 位地址（hex），如 8 位标注的 0x92 请填 49" />
+                    <ui:TextBox x:Name="TxtSlave" Text="49" Width="64" MaxLength="4" Margin="8,0,16,0" />
+                    <TextBlock Text="寄存器地址宽度" VerticalAlignment="Center" Opacity="0.75" />
+                    <ComboBox x:Name="CmbRegWidth" SelectedIndex="0" MinWidth="100" Margin="8,0,16,0">
+                        <ComboBoxItem Content="Reg 8Bit" Tag="1" />
+                        <ComboBoxItem Content="Reg 16Bit" Tag="2" />
+                    </ComboBox>
+                    <TextBlock Text="Profile" VerticalAlignment="Center" Opacity="0.75" />
+                    <ComboBox x:Name="CmbProfile" MinWidth="150" Margin="8,0,0,0" />
+                    <ui:Button x:Name="BtnSave" Content="保存" Click="BtnSave_Click" Margin="8,0,0,0" />
+                    <ui:Button x:Name="BtnLoad" Content="载入" Click="BtnLoad_Click" Margin="0,0,0,0" />
+                    <ui:Button x:Name="BtnDelete" Content="删除" Click="BtnDelete_Click" Margin="8,0,0,0" />
+                </StackPanel>
+            </ui:Card>
+
+            <!-- ═══ 寄存器表 ═══ -->
+            <DockPanel Margin="4,0,0,6">
+                <TextBlock Text="寄存器表" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <ui:Button x:Name="BtnAddRow" Content="添加行" Click="BtnAddRow_Click" />
+                    <ui:Button x:Name="BtnDelRow" Content="删除选中" Click="BtnDelRow_Click" Margin="8,0,12,0" />
+                    <ui:Button x:Name="BtnReadAll" Content="一键读取全部" Appearance="Primary"
+                               Click="BtnReadAll_Click" MinWidth="110" />
+                </StackPanel>
+            </DockPanel>
+            <DataGrid x:Name="GridReg" AutoGenerateColumns="False" CanUserAddRows="False"
+                      HeadersVisibility="Column" Margin="0,0,0,14" MinHeight="120"
+                      RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
+                      FontFamily="Consolas" FontSize="12">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="90" />
+                    <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="60" />
+                    <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="*" />
+                    <DataGridTemplateColumn Header="读写" Width="76">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <ComboBox SelectedIndex="{Binding Dir, Converter={StaticResource DirIndex}}" FontSize="12">
+                                    <ComboBoxItem Content="R" />
+                                    <ComboBoxItem Content="W" />
+                                </ComboBox>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="140" />
+                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90"
+                                        ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
+                    <DataGridTemplateColumn Header="执行" Width="120">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="读" Click="BtnRowRead_Click" Width="42" Padding="2" Margin="2" />
+                                    <Button Content="写" Click="BtnRowWrite_Click" Width="42" Padding="2" Margin="2" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <!-- ═══ 初始化序列 ═══ -->
+            <DockPanel Margin="4,0,0,6">
+                <TextBlock Text="初始化序列（上电配置，按序写入）" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <ui:Button x:Name="BtnAddInit" Content="添加行" Click="BtnAddInit_Click" />
+                    <ui:Button x:Name="BtnDelInit" Content="删除选中" Click="BtnDelInit_Click" Margin="8,0,12,0" />
+                    <ui:Button x:Name="BtnRunInit" Content="一键初始化" Appearance="Primary"
+                               Click="BtnRunInit_Click" MinWidth="110" />
+                </StackPanel>
+            </DockPanel>
+            <DataGrid x:Name="GridInit" AutoGenerateColumns="False" CanUserAddRows="False"
+                      HeadersVisibility="Column" Margin="0,0,0,14" MinHeight="90"
+                      RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
+                      FontFamily="Consolas" FontSize="12">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="延时ms" Binding="{Binding DelayMs}" Width="70" />
+                    <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="90" />
+                    <DataGridTextColumn Header="写入数据" Binding="{Binding Value}" Width="*" />
+                    <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="140" />
+                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="90"
+                                        ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
+                    <DataGridTemplateColumn Header="执行" Width="80">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="写" Click="BtnInitRowWrite_Click" Width="42" Padding="2" Margin="2" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+
+            <!-- ═══ 周期触发 ═══ -->
+            <ui:Card>
+                <StackPanel Orientation="Horizontal" Margin="4">
+                    <TextBlock Text="周期触发" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    <CheckBox x:Name="ChkInitFirst" Content="每周期先执行初始化" VerticalAlignment="Center"
+                              Margin="18,0,0,0" />
+                    <TextBlock Text="间隔" VerticalAlignment="Center" Margin="18,0,6,0" Opacity="0.75" />
+                    <ui:TextBox x:Name="TxtPeriodMs" Text="1000" Width="90" />
+                    <TextBlock Text="ms（最低 10）" VerticalAlignment="Center" Margin="6,0,0,0" Opacity="0.6" />
+                    <ui:Button x:Name="BtnPeriod" Content="开始" Appearance="Primary" MinWidth="88"
+                               Click="BtnPeriod_Click" Margin="18,0,0,0" />
+                    <TextBlock x:Name="TxtPeriodState" Text="—" VerticalAlignment="Center" Margin="16,0,0,0"
+                               FontFamily="Consolas" Opacity="0.85" />
+                </StackPanel>
+            </ui:Card>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
