@@ -116,28 +116,25 @@ public partial class I2cPage : UserControl
 
     // ── Settings 段 ──
 
-    // ── 扩展面板（寄存器表 / 初始化序列 / 周期触发）──
+    // ── 扩展面板（寄存器表 / 初始化序列，行内执行支持按「周期ms」轮询）──
 
     public ObservableCollection<RegRow> RegTable { get; } = [];
     public ObservableCollection<RegRow> InitSeq { get; } = [];
-    private CancellationTokenSource? _extPeriodCts;
-    private bool _extPeriodRunning;
+    /// <summary>正在轮询的行 → 其取消源。键为引用，DataGrid 行对象生命周期内稳定。</summary>
+    private readonly Dictionary<RegRow, CancellationTokenSource> _rowLoops = [];
 
     private void BtnTabMain_Click(object sender, RoutedEventArgs e) => ShowExtTab(false);
     private void BtnTabExt_Click(object sender, RoutedEventArgs e) => ShowExtTab(true);
 
     private void BtnSubReg_Click(object sender, RoutedEventArgs e) => ShowExtSub("reg");
     private void BtnSubInit_Click(object sender, RoutedEventArgs e) => ShowExtSub("init");
-    private void BtnSubPeriod_Click(object sender, RoutedEventArgs e) => ShowExtSub("period");
 
     private void ShowExtSub(string which)
     {
         RegHost.Visibility = which == "reg" ? Visibility.Visible : Visibility.Collapsed;
         InitHost.Visibility = which == "init" ? Visibility.Visible : Visibility.Collapsed;
-        PeriodHost.Visibility = which == "period" ? Visibility.Visible : Visibility.Collapsed;
         BtnSubReg.Appearance = which == "reg" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
         BtnSubInit.Appearance = which == "init" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
-        BtnSubPeriod.Appearance = which == "period" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
     }
 
     private void ShowExtTab(bool ext)
@@ -180,45 +177,90 @@ public partial class I2cPage : UserControl
         if (GridInit.SelectedItem is RegRow r) InitSeq.Remove(r);
     }
 
-    /// <summary>行执行：按该行读写属性分派（R 读 / W 写）。</summary>
-    private async void BtnRowExec_Click(object sender, RoutedEventArgs e)
+    /// <summary>行执行：周期ms=0 单次执行（按读写属性）；&gt;0 点击进入周期轮询，再点停止。</summary>
+    private void BtnRowExec_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { DataContext: RegRow row }) return;
-        if (row.Dir == "W") await BtnRowWriteCore(row);
-        else await BtnRowReadCore(row);
+        if (sender is not Button btn || btn.DataContext is not RegRow row) return;
+
+        // 已在轮询 → 本次点击 = 停止
+        if (_rowLoops.TryGetValue(row, out var running))
+        {
+            running.Cancel();
+            _rowLoops.Remove(row);
+            btn.Content = "执行";
+            return;
+        }
+
+        if (row.PeriodMs > 0)
+        {
+            var cts = new CancellationTokenSource();
+            _rowLoops[row] = cts;
+            btn.Content = "停止";
+            _ = RunRowLoopAsync(row, cts.Token).ContinueWith(
+                _ => Dispatcher.Invoke(() => btn.Content = "执行"),
+                CancellationToken.None, TaskContinuationOptions.OnlyOnRanToCompletion,
+                TaskScheduler.FromCurrentSynchronizationContext());
+        }
+        else
+        {
+            _ = ExecRowOnceAsync(row);
+        }
     }
 
-    private async Task BtnRowReadCore(RegRow row)
+    /// <summary>单次执行：按行读写属性分派（R 读 / W 写）。</summary>
+    private async Task ExecRowOnceAsync(RegRow row)
     {
-        try
-        {
-            var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), Math.Max(1, row.Len), ExtRegWidth());
-            row.Status = r.Ok ? "OK" : "ERR";
-            if (r.Ok && r.Data is not null) row.Value = Convert.ToHexString(r.Data);
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "寄存器读", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, r.Data));
-        }
-        catch (Exception ex)
-        {
-            row.Status = "ERR";
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "寄存器读", "—", -1, 0,
-                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-        }
-    }
-
-    private async Task BtnRowWriteCore(RegRow row)
-    {
-        try
+        if (row.Dir == "W")
         {
             byte[] data = Hex.ParseBytes(string.IsNullOrWhiteSpace(row.Value) ? "00" : row.Value);
             var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
             row.Status = r.Ok ? "OK" : "ERR";
             App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "寄存器写", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, data));
         }
-        catch (Exception ex)
+        else
         {
-            row.Status = "ERR";
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "寄存器写", "—", -1, 0,
-                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+            var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), Math.Max(1, row.Len), ExtRegWidth());
+            row.Status = r.Ok ? "OK" : "ERR";
+            if (r.Ok && r.Data is not null) row.Value = Convert.ToHexString(r.Data);
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "寄存器读", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, r.Data));
+        }
+    }
+
+    /// <summary>行周期轮询循环：按 row.PeriodMs 节奏执行；读在值变化时进日志，写仅在失败时记录。</summary>
+    private async Task RunRowLoopAsync(RegRow row, CancellationToken ct)
+    {
+        using var timer = new System.Threading.PeriodicTimer(TimeSpan.FromMilliseconds(Math.Max(10, row.PeriodMs)));
+        string? lastHex = null;
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                if (row.Dir == "W")
+                {
+                    byte[] data = Hex.ParseBytes(string.IsNullOrWhiteSpace(row.Value) ? "00" : row.Value);
+                    var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
+                    row.Status = r.Ok ? "OK" : "ERR";
+                    if (!r.Ok)
+                        App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "周期写", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, data));
+                }
+                else
+                {
+                    var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), Math.Max(1, row.Len), ExtRegWidth());
+                    row.Status = r.Ok ? "OK" : "ERR";
+                    string hex = r.Ok && r.Data is not null ? Convert.ToHexString(r.Data) : "";
+                    if (r.Ok && hex != lastHex)
+                        App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, r.Data));
+                    lastHex = hex;
+                }
+            }
+            catch (Exception ex)
+            {
+                row.Status = "ERR";
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", "—", -1, 0,
+                    System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+            }
+            try { await timer.WaitForNextTickAsync(ct); }
+            catch (OperationCanceledException) { break; }
         }
     }
 
@@ -299,99 +341,6 @@ public partial class I2cPage : UserControl
                 break;
             }
         }
-    }
-
-    /// <summary>周期触发：按寄存器表各行「周期ms」调度读取（0 = 不轮询），10 ms 分辨率。</summary>
-    private async void BtnExtPeriod_Click(object sender, RoutedEventArgs e)
-    {
-        if (_extPeriodRunning) { _extPeriodCts?.Cancel(); return; }
-        try
-        {
-            var polling = RegTable.Where(r => r.PeriodMs > 0).ToList();
-            if (polling.Count == 0)
-                throw new ArgumentException("没有行设置周期ms——在寄存器表「周期ms」列填 >0 的值");
-
-            _extPeriodCts = new CancellationTokenSource();
-            _extPeriodRunning = true;
-            BtnExtPeriod.Content = "停止";
-            if (ChkInitFirst.IsChecked == true)
-                await RunInitSequenceAsync();
-
-            int okTotal = 0, errTotal = 0;
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            var nextDue = polling.ToDictionary(r => r, r => sw.ElapsedMilliseconds + Math.Max(10, r.PeriodMs));
-            var lastVal = polling.ToDictionary(r => r, _ => "");
-
-            using var timer = new System.Threading.PeriodicTimer(TimeSpan.FromMilliseconds(10));
-            try
-            {
-                while (await timer.WaitForNextTickAsync(_extPeriodCts.Token))
-                {
-                    foreach (var row in polling)
-                    {
-                        if (sw.ElapsedMilliseconds < nextDue[row]) continue;
-                        nextDue[row] = sw.ElapsedMilliseconds + Math.Max(10, row.PeriodMs);
-                        try
-                        {
-                            var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg),
-                                Math.Max(1, row.Len), ExtRegWidth());
-                            row.Status = r.Ok ? "OK" : "ERR";
-                            string hex = r.Ok && r.Data is not null ? Convert.ToHexString(r.Data) : "";
-                            if (r.Ok) okTotal++; else errTotal++;
-                            // 防刷屏：值变化或失败才写日志
-                            if (!r.Ok || hex != lastVal[row])
-                                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读",
-                                    $"0x{ExtSlave7():X2}", r.Ret, r.Ms, r.Data));
-                            lastVal[row] = hex;
-                        }
-                        catch (Exception ex)
-                        {
-                            errTotal++;
-                            row.Status = "ERR";
-                            App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", "—", -1, 0,
-                                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-                        }
-                    }
-                    TxtExtPeriodState.Text = $"轮询中 · OK {okTotal} · ERR {errTotal}";
-                }
-            }
-            catch (OperationCanceledException) { }
-            TxtExtPeriodState.Text = $"已停止 · OK {okTotal} · ERR {errTotal}";
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS",
-                $"周期触发结束（OK {okTotal} / ERR {errTotal}）", "—", 0, 0, null));
-        }
-        catch (Exception ex)
-        {
-            TxtExtPeriodState.Text = "错误：" + ex.Message;
-        }
-        finally
-        {
-            _extPeriodRunning = false;
-            BtnExtPeriod.Content = "开始";
-        }
-    }
-
-    private async Task<int> ReadAllExtAsync()
-    {
-        int okCount = 0;
-        foreach (var row in RegTable)
-        {
-            try
-            {
-                var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), Math.Max(1, row.Len), ExtRegWidth());
-                row.Status = r.Ok ? "OK" : "ERR";
-                if (r.Ok && r.Data is not null) row.Value = Convert.ToHexString(r.Data);
-                if (r.Ok) okCount++;
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, r.Data));
-            }
-            catch (Exception ex)
-            {
-                row.Status = "ERR";
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", "—", -1, 0,
-                    System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-            }
-        }
-        return okCount;
     }
 
     private async Task RunInitSequenceAsync()
