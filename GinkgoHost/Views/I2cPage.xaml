@@ -117,8 +117,45 @@
                 </Grid>
             </ui:Card>
 
+            <TextBlock Text="⏱️ 周期任务" FontSize="15" FontWeight="SemiBold" Margin="4,0,0,6" />
+            <ui:Card Margin="0,0,0,10">
+                <Grid Margin="4">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition />
+                        <ColumnDefinition Width="24" />
+                        <ColumnDefinition />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <DockPanel LastChildFill="False">
+                            <TextBlock Text="周期读（用上方 READ 参数）" FontWeight="SemiBold" />
+                            <ui:Button x:Name="BtnPeriodR" Content="开始" Click="BtnPeriodR_Click"
+                                       DockPanel.Dock="Right" HorizontalAlignment="Right" MinWidth="76"
+                                       Appearance="Primary" />
+                        </DockPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <ui:TextBox x:Name="TxtPeriodR" Text="500" Width="90" />
+                            <TextBlock Text="ms（最低 10）" VerticalAlignment="Center" Margin="6,0,12,0" Opacity="0.6" />
+                            <TextBlock x:Name="TxtLastR" Text="—" FontFamily="Consolas" VerticalAlignment="Center"
+                                       Foreground="#C4B9FE" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2">
+                        <DockPanel LastChildFill="False">
+                            <TextBlock Text="周期写（用上方 WRITE 参数）" FontWeight="SemiBold" />
+                            <ui:Button x:Name="BtnPeriodW" Content="开始" Click="BtnPeriodW_Click"
+                                       DockPanel.Dock="Right" HorizontalAlignment="Right" MinWidth="76" />
+                        </DockPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <ui:TextBox x:Name="TxtPeriodW" Text="1000" Width="90" />
+                            <TextBlock Text="ms（最低 10）" VerticalAlignment="Center" Margin="6,0,12,0" Opacity="0.6" />
+                            <TextBlock x:Name="TxtCountW" Text="—" FontFamily="Consolas" VerticalAlignment="Center" Opacity="0.85" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </ui:Card>
+
         </StackPanel>
-        </ScrollViewer>
+    </ScrollViewer>
         <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center" VerticalAlignment="Stretch"
                       Background="Transparent" ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
                       MouseDoubleClick="Splitter_DoubleClick" ToolTip="拖拽调整 · 双击复位" />

@@ -74,6 +74,42 @@ if (args.Length > 0 && args[0] == "--probe")
     }
 }
 
+// ── 周期读探针：--periodic <7位地址> <reg> <len> <次数> <间隔ms> [通道] ──
+// 验证 I2cService.PeriodicReadAsync 的计时、取消与值回报。
+if (args.Length > 0 && args[0] == "--periodic")
+{
+    byte paddr = Convert.ToByte(args[1].Replace("0x", ""), 16);
+    byte preg = args.Length > 2 ? Convert.ToByte(args[2].Replace("0x", ""), 16) : (byte)0;
+    int plen = args.Length > 3 ? int.Parse(args[3]) : 1;
+    int ptimes = args.Length > 4 ? int.Parse(args[4]) : 5;
+    int pms = args.Length > 5 ? int.Parse(args[5]) : 100;
+    int pch = args.Length > 6 ? int.Parse(args[6]) : 0;
+
+    var svc = new GinkgoHost.Services.I2cService();
+    var (cnt, oret) = await svc.ConnectAsync(pch, 100_000, GinkgoDriver.VII_HCTL_MODE);
+    if (cnt <= 0 || oret != 0) { Console.WriteLine($"FAIL 适配器打开失败（{cnt}/{oret}）"); return 1; }
+
+    int n = 0;
+    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    int done = 0; string? reason = null;
+    try
+    {
+        (done, reason) = await svc.PeriodicReadAsync(pms, paddr, preg, plen, r =>
+        {
+            var nn = Interlocked.Increment(ref n);
+            Console.WriteLine($"  #{nn} [{r.Ms:F1} ms] {(r.Ok ? $"0x{Convert.ToHexString(r.Data!)}" : GinkgoDriver.ErrorName(r.Ret))}");
+            if (nn >= ptimes) cts.Cancel(); // 达到目标次数即停
+        }, cts.Token);
+    }
+    catch (OperationCanceledException) { /* 达到次数主动取消，正常路径 */ }
+    sw.Stop();
+    await svc.CloseAsync();
+    Console.WriteLine($"完成 {done} 次，实际耗时 {sw.ElapsedMilliseconds} ms{(reason is null ? "" : $"，停止原因：{reason}")}");
+    Console.WriteLine(done >= ptimes ? $"PASS 周期读（{done} 次全部完成）" : "FAIL 周期读未达目标次数");
+    return 0;
+}
+
 // ── 常规冒烟 ──
 int failures = 0;
 

@@ -238,6 +238,55 @@ public sealed class I2cService : IDisposable
         finally { _bus.Release(); }
     }
 
+    /// <summary>周期读：按间隔重复执行读操作。onTick 在后台线程回调（含失败结果）。
+    /// 连续 5 次失败自动停止。返回 (完成次数, 停止原因)。最小间隔 10 ms。</summary>
+    public async Task<(int Done, string? StopReason)> PeriodicReadAsync(int intervalMs, byte addr7, byte? reg, int len,
+        Action<OpResult> onTick, CancellationToken ct)
+    {
+        int done = 0, fails = 0;
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(Math.Max(10, intervalMs)));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                var r = reg.HasValue
+                    ? await ReadRegisterAsync(addr7, reg.Value, len)
+                    : await RawReadAsync(addr7, len);
+                onTick(r);
+                done++;
+                if (r.Ok) fails = 0;
+                else if (++fails >= 5)
+                    return (done, $"连续 {fails} 次失败（{GinkgoDriver.ErrorName(r.Ret)}），已自动停止");
+            }
+        }
+        catch (OperationCanceledException) { } // 手动停止：正常返回计数
+        return (done, null);
+    }
+
+    /// <summary>周期写：按间隔重复执行写操作。自动停止策略与周期读相同。最小间隔 10 ms。</summary>
+    public async Task<(int Done, string? StopReason)> PeriodicWriteAsync(int intervalMs, byte addr7, byte? reg,
+        byte[] data, Action<OpResult> onTick, CancellationToken ct)
+    {
+        int done = 0, fails = 0;
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(Math.Max(10, intervalMs)));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                var r = reg.HasValue
+                    ? await WriteRegisterAsync(addr7, reg.Value, data)
+                    : await RawWriteAsync(addr7, data);
+                onTick(r);
+                done++;
+                if (r.Ok) fails = 0;
+                else if (++fails >= 5)
+                    return (done, $"连续 {fails} 次失败（{GinkgoDriver.ErrorName(r.Ret)}），已自动停止");
+            }
+        }
+        catch (OperationCanceledException) { } // 手动停止：正常返回计数
+        return (done, null);
+    }
+
     private void EnsureOpen()
     {
         if (!IsOpen)
