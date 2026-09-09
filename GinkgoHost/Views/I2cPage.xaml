@@ -288,7 +288,8 @@
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="延时ms" Binding="{Binding DelayMs}" Width="64" />
                                 <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="76" />
-                                <DataGridTextColumn Header="写入数据" Binding="{Binding Value}" Width="120" />
+                                <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="50" />
+                                <DataGridTextColumn Header="数据" Binding="{Binding Value}" Width="110" />
                                 <DataGridTemplateColumn Header="读写" Width="70">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
