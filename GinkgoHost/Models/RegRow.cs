@@ -9,6 +9,7 @@ public sealed class RegRow : INotifyPropertyChanged
 {
     private string _reg = "00";
     private int _len = 1;
+    private int _periodMs;
     private string _dir = "R";
     private string _value = "";
     private int _delayMs;
@@ -17,6 +18,8 @@ public sealed class RegRow : INotifyPropertyChanged
 
     public string Reg { get => _reg; set { _reg = value; OnPropertyChanged(); } }
     public int Len { get => _len; set { _len = value; OnPropertyChanged(); } }
+    /// <summary>周期轮询间隔 ms；0 = 不轮询。周期触发按此调度。</summary>
+    public int PeriodMs { get => _periodMs; set { _periodMs = value; OnPropertyChanged(); } }
     /// <summary>R=读 W=写。初始化序列固定按写处理。</summary>
     public string Dir { get => _dir; set { _dir = value; OnPropertyChanged(); } }
     /// <summary>hex 字节串，空格分隔（如 "DE AD"）。</summary>

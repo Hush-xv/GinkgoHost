@@ -301,38 +301,64 @@ public partial class I2cPage : UserControl
         }
     }
 
+    /// <summary>周期触发：按寄存器表各行「周期ms」调度读取（0 = 不轮询），10 ms 分辨率。</summary>
     private async void BtnExtPeriod_Click(object sender, RoutedEventArgs e)
     {
         if (_extPeriodRunning) { _extPeriodCts?.Cancel(); return; }
         try
         {
-            int ms = int.Parse(TxtExtPeriodMs.Text.Trim(), CultureInfo.InvariantCulture);
-            if (ms < 10) throw new ArgumentException("最小间隔 10 ms");
-            bool initFirst = ChkInitFirst.IsChecked == true;
+            var polling = RegTable.Where(r => r.PeriodMs > 0).ToList();
+            if (polling.Count == 0)
+                throw new ArgumentException("没有行设置周期ms——在寄存器表「周期ms」列填 >0 的值");
 
             _extPeriodCts = new CancellationTokenSource();
             _extPeriodRunning = true;
             BtnExtPeriod.Content = "停止";
-            int ticks = 0;
-            string? lastSnap = null;
+            if (ChkInitFirst.IsChecked == true)
+                await RunInitSequenceAsync();
 
-            using var timer = new System.Threading.PeriodicTimer(TimeSpan.FromMilliseconds(ms));
+            int okTotal = 0, errTotal = 0;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var nextDue = polling.ToDictionary(r => r, r => sw.ElapsedMilliseconds + Math.Max(10, r.PeriodMs));
+            var lastVal = polling.ToDictionary(r => r, _ => "");
+
+            using var timer = new System.Threading.PeriodicTimer(TimeSpan.FromMilliseconds(10));
             try
             {
                 while (await timer.WaitForNextTickAsync(_extPeriodCts.Token))
                 {
-                    if (initFirst) await RunInitSequenceAsync();
-                    int ok = await ReadAllExtAsync();
-                    ticks++;
-                    string snap = string.Join("|", RegTable.Select(r2 => $"{r2.Reg}={r2.Value}"));
-                    bool changed = lastSnap is not null && snap != lastSnap;
-                    lastSnap = snap;
-                    TxtExtPeriodState.Text = $"第 {ticks} 轮 · OK {ok}/{RegTable.Count}{(changed ? " · 值有变化" : "")}";
+                    foreach (var row in polling)
+                    {
+                        if (sw.ElapsedMilliseconds < nextDue[row]) continue;
+                        nextDue[row] = sw.ElapsedMilliseconds + Math.Max(10, row.PeriodMs);
+                        try
+                        {
+                            var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg),
+                                Math.Max(1, row.Len), ExtRegWidth());
+                            row.Status = r.Ok ? "OK" : "ERR";
+                            string hex = r.Ok && r.Data is not null ? Convert.ToHexString(r.Data) : "";
+                            if (r.Ok) okTotal++; else errTotal++;
+                            // 防刷屏：值变化或失败才写日志
+                            if (!r.Ok || hex != lastVal[row])
+                                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读",
+                                    $"0x{ExtSlave7():X2}", r.Ret, r.Ms, r.Data));
+                            lastVal[row] = hex;
+                        }
+                        catch (Exception ex)
+                        {
+                            errTotal++;
+                            row.Status = "ERR";
+                            App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", "—", -1, 0,
+                                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+                        }
+                    }
+                    TxtExtPeriodState.Text = $"轮询中 · OK {okTotal} · ERR {errTotal}";
                 }
             }
             catch (OperationCanceledException) { }
-            TxtExtPeriodState.Text += " · 已停止";
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", $"周期触发结束（{ticks} 轮）", "—", 0, 0, null));
+            TxtExtPeriodState.Text = $"已停止 · OK {okTotal} · ERR {errTotal}";
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS",
+                $"周期触发结束（OK {okTotal} / ERR {errTotal}）", "—", 0, 0, null));
         }
         catch (Exception ex)
         {

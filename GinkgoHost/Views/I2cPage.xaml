@@ -242,9 +242,10 @@
                                       FontFamily="Consolas" FontSize="12"
                                       ScrollViewer.HorizontalScrollBarVisibility="Auto">
                                 <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="76" />
-                                    <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="50" />
-                                    <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="120" />
+                                <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="76" />
+                                <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="50" />
+                                <DataGridTextColumn Header="周期ms" Binding="{Binding PeriodMs}" Width="64" />
+                                <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="120" />
                                     <DataGridTemplateColumn Header="读写" Width="70">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
@@ -318,15 +319,14 @@
                         <ui:Card x:Name="PeriodHost" Visibility="Collapsed">
                             <StackPanel Margin="4">
                                 <StackPanel Orientation="Horizontal">
-                                    <CheckBox x:Name="ChkInitFirst" Content="每周期先执行初始化" VerticalAlignment="Center" />
-                                    <TextBlock Text="间隔" VerticalAlignment="Center" Margin="24,0,6,0" Opacity="0.75" />
-                                    <ui:TextBox x:Name="TxtExtPeriodMs" Text="1000" Width="90" />
-                                    <TextBlock Text="ms（最低 10）" VerticalAlignment="Center" Margin="6,0,0,0" Opacity="0.6" />
+                                    <CheckBox x:Name="ChkInitFirst" Content="启动时先执行一次初始化" VerticalAlignment="Center" />
                                     <ui:Button x:Name="BtnExtPeriod" Content="开始" Appearance="Primary" MinWidth="88"
-                                               Click="BtnExtPeriod_Click" Margin="18,0,0,0" />
+                                               Click="BtnExtPeriod_Click" Margin="24,0,0,0" />
+                                    <TextBlock x:Name="TxtExtPeriodState" Text="未在轮询" VerticalAlignment="Center"
+                                               Margin="20,0,0,0" FontFamily="Consolas" Opacity="0.85" TextWrapping="Wrap" />
                                 </StackPanel>
-                                <TextBlock x:Name="TxtExtPeriodState" Text="—" Margin="0,10,0,0"
-                                           FontFamily="Consolas" Opacity="0.85" TextWrapping="Wrap" />
+                                <TextBlock FontSize="11" Opacity="0.45" Margin="0,10,0,0" TextWrapping="Wrap"
+                                           Text="按寄存器表各行「周期ms」轮询（0 = 不轮询，最低 10）；仅在值变化或失败时写日志" />
                             </StackPanel>
                         </ui:Card>
                     </Grid>
