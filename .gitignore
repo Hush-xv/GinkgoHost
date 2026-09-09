@@ -1,0 +1,12 @@
+# 构建产物
+bin/
+obj/
+publish/
+*.user
+
+# 第三方 SDK 缓存与解包（ViewTool SDK、Mission Control 拆解）
+_sdk/
+
+# 插件/IDE 状态
+.mimosa/
+.vs/
