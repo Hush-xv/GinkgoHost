@@ -37,6 +37,7 @@ public partial class I2cPage : UserControl
             RestoreSettings();
             RefreshProfiles();
         };
+        ShowExtSub("reg");
     }
 
     private void RestoreSettings()
@@ -125,10 +126,24 @@ public partial class I2cPage : UserControl
     private void BtnTabMain_Click(object sender, RoutedEventArgs e) => ShowExtTab(false);
     private void BtnTabExt_Click(object sender, RoutedEventArgs e) => ShowExtTab(true);
 
+    private void BtnSubReg_Click(object sender, RoutedEventArgs e) => ShowExtSub("reg");
+    private void BtnSubInit_Click(object sender, RoutedEventArgs e) => ShowExtSub("init");
+    private void BtnSubPeriod_Click(object sender, RoutedEventArgs e) => ShowExtSub("period");
+
+    private void ShowExtSub(string which)
+    {
+        GridReg.Visibility = which == "reg" ? Visibility.Visible : Visibility.Collapsed;
+        GridInit.Visibility = which == "init" ? Visibility.Visible : Visibility.Collapsed;
+        PeriodHost.Visibility = which == "period" ? Visibility.Visible : Visibility.Collapsed;
+        BtnSubReg.Appearance = which == "reg" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
+        BtnSubInit.Appearance = which == "init" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
+        BtnSubPeriod.Appearance = which == "period" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
+    }
+
     private void ShowExtTab(bool ext)
     {
         MainScroll.Visibility = ext ? Visibility.Collapsed : Visibility.Visible;
-        ExtScroll.Visibility = ext ? Visibility.Visible : Visibility.Collapsed;
+        ExtPanel.Visibility = ext ? Visibility.Visible : Visibility.Collapsed;
         BtnTabMain.Appearance = ext ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
         BtnTabExt.Appearance = ext ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
     }
