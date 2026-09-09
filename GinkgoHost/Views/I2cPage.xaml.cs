@@ -1,7 +1,9 @@
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using GinkgoHost.Models;
@@ -28,7 +30,13 @@ public partial class I2cPage : UserControl
     {
         InitializeComponent();
         LogView.Init(App.Log);
-        Loaded += (_, _) => RestoreSettings();
+        GridReg.ItemsSource = RegTable;
+        GridInit.ItemsSource = InitSeq;
+        Loaded += (_, _) =>
+        {
+            RestoreSettings();
+            RefreshProfiles();
+        };
     }
 
     private void RestoreSettings()
@@ -106,6 +114,257 @@ public partial class I2cPage : UserControl
     }
 
     // ── Settings 段 ──
+
+    // ── 扩展面板（寄存器表 / 初始化序列 / 周期触发）──
+
+    public ObservableCollection<RegRow> RegTable { get; } = [];
+    public ObservableCollection<RegRow> InitSeq { get; } = [];
+    private CancellationTokenSource? _extPeriodCts;
+    private bool _extPeriodRunning;
+
+    private void BtnTabMain_Click(object sender, RoutedEventArgs e) => ShowExtTab(false);
+    private void BtnTabExt_Click(object sender, RoutedEventArgs e) => ShowExtTab(true);
+
+    private void ShowExtTab(bool ext)
+    {
+        MainScroll.Visibility = ext ? Visibility.Collapsed : Visibility.Visible;
+        ExtScroll.Visibility = ext ? Visibility.Visible : Visibility.Collapsed;
+        BtnTabMain.Appearance = ext ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
+        BtnTabExt.Appearance = ext ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
+    }
+
+    private byte ExtSlave7() => Hex.ParseByte(TxtSlave.Text);
+
+    private uint ExtParseReg(string s)
+    {
+        s = s.Trim().Replace("0x", "").Replace("0X", "");
+        return uint.Parse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+    }
+
+    private byte ExtRegWidth() =>
+        CmbRegWidth.SelectedIndex == 1 ? GinkgoDriver.VII_SUB_ADDR_2BYTE : GinkgoDriver.VII_SUB_ADDR_1BYTE;
+
+    private void RefreshProfiles()
+    {
+        CmbProfile.Items.Clear();
+        foreach (var p in ProfileService.List())
+            CmbProfile.Items.Add(p);
+        if (CmbProfile.Items.Count > 0) CmbProfile.SelectedIndex = 0;
+    }
+
+    private void BtnAddRow_Click(object sender, RoutedEventArgs e) => RegTable.Add(new RegRow());
+    private void BtnAddInit_Click(object sender, RoutedEventArgs e) => InitSeq.Add(new RegRow());
+
+    private void BtnDelRow_Click(object sender, RoutedEventArgs e)
+    {
+        if (GridReg.SelectedItem is RegRow r) RegTable.Remove(r);
+    }
+
+    private void BtnDelInit_Click(object sender, RoutedEventArgs e)
+    {
+        if (GridInit.SelectedItem is RegRow r) InitSeq.Remove(r);
+    }
+
+    private async void BtnRowRead_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: RegRow row }) return;
+        try
+        {
+            var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), Math.Max(1, row.Len), ExtRegWidth());
+            row.Status = r.Ok ? "OK" : "ERR";
+            if (r.Ok && r.Data is not null) row.Value = Convert.ToHexString(r.Data);
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "寄存器读", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, r.Data));
+        }
+        catch (Exception ex)
+        {
+            row.Status = "ERR";
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "寄存器读", "—", -1, 0,
+                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+        }
+    }
+
+    private async void BtnRowWrite_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: RegRow row }) return;
+        await ExtWriteRowAsync(row, "寄存器写");
+    }
+
+    private async void BtnInitRowWrite_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: RegRow row }) return;
+        await ExtWriteRowAsync(row, "初始化写");
+    }
+
+    private async Task ExtWriteRowAsync(RegRow row, string op)
+    {
+        try
+        {
+            byte[] data = Hex.ParseBytes(string.IsNullOrWhiteSpace(row.Value) ? "00" : row.Value);
+            var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
+            row.Status = r.Ok ? "OK" : "ERR";
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", op, $"0x{ExtSlave7():X2}", r.Ret, r.Ms, data));
+        }
+        catch (Exception ex)
+        {
+            row.Status = "ERR";
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", op, "—", -1, 0,
+                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+        }
+    }
+
+    private async void BtnReadAll_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var row in RegTable)
+        {
+            try
+            {
+                var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), Math.Max(1, row.Len), ExtRegWidth());
+                row.Status = r.Ok ? "OK" : "ERR";
+                if (r.Ok && r.Data is not null) row.Value = Convert.ToHexString(r.Data);
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "读全部", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, r.Data));
+            }
+            catch (Exception ex)
+            {
+                row.Status = "ERR";
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "读全部", "—", -1, 0,
+                    System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+            }
+        }
+    }
+
+    private async void BtnRunInit_Click(object sender, RoutedEventArgs e)
+    {
+        foreach (var row in InitSeq)
+        {
+            if (row.DelayMs > 0)
+                await Task.Delay(Math.Min(row.DelayMs, 10_000));
+            try
+            {
+                byte[] data = Hex.ParseBytes(string.IsNullOrWhiteSpace(row.Value) ? "00" : row.Value);
+                var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
+                row.Status = r.Ok ? "OK" : "ERR";
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "初始化", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, data));
+                if (!r.Ok) break; // 初始化失败即中止，后续行没有意义
+            }
+            catch (Exception ex)
+            {
+                row.Status = "ERR";
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "初始化", "—", -1, 0,
+                    System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+                break;
+            }
+        }
+    }
+
+    private async void BtnExtPeriod_Click(object sender, RoutedEventArgs e)
+    {
+        if (_extPeriodRunning) { _extPeriodCts?.Cancel(); return; }
+        try
+        {
+            int ms = int.Parse(TxtExtPeriodMs.Text.Trim(), CultureInfo.InvariantCulture);
+            if (ms < 10) throw new ArgumentException("最小间隔 10 ms");
+            bool initFirst = ChkInitFirst.IsChecked == true;
+
+            _extPeriodCts = new CancellationTokenSource();
+            _extPeriodRunning = true;
+            BtnExtPeriod.Content = "停止";
+            int ticks = 0;
+            string? lastSnap = null;
+
+            using var timer = new System.Threading.PeriodicTimer(TimeSpan.FromMilliseconds(ms));
+            try
+            {
+                while (await timer.WaitForNextTickAsync(_extPeriodCts.Token))
+                {
+                    if (initFirst) await RunInitSequenceAsync();
+                    int ok = await ReadAllExtAsync();
+                    ticks++;
+                    string snap = string.Join("|", RegTable.Select(r2 => $"{r2.Reg}={r2.Value}"));
+                    bool changed = lastSnap is not null && snap != lastSnap;
+                    lastSnap = snap;
+                    TxtExtPeriodState.Text = $"第 {ticks} 轮 · OK {ok}/{RegTable.Count}{(changed ? " · 值有变化" : "")}";
+                }
+            }
+            catch (OperationCanceledException) { }
+            TxtExtPeriodState.Text += " · 已停止";
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", $"周期触发结束（{ticks} 轮）", "—", 0, 0, null));
+        }
+        catch (Exception ex)
+        {
+            TxtExtPeriodState.Text = "错误：" + ex.Message;
+        }
+        finally
+        {
+            _extPeriodRunning = false;
+            BtnExtPeriod.Content = "开始";
+        }
+    }
+
+    private async Task<int> ReadAllExtAsync()
+    {
+        int okCount = 0;
+        foreach (var row in RegTable)
+        {
+            try
+            {
+                var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), Math.Max(1, row.Len), ExtRegWidth());
+                row.Status = r.Ok ? "OK" : "ERR";
+                if (r.Ok && r.Data is not null) row.Value = Convert.ToHexString(r.Data);
+                if (r.Ok) okCount++;
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, r.Data));
+            }
+            catch (Exception ex)
+            {
+                row.Status = "ERR";
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", "—", -1, 0,
+                    System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+            }
+        }
+        return okCount;
+    }
+
+    private async Task RunInitSequenceAsync()
+    {
+        foreach (var row in InitSeq)
+        {
+            if (row.DelayMs > 0)
+                await Task.Delay(Math.Min(row.DelayMs, 10_000));
+            byte[] data = Hex.ParseBytes(string.IsNullOrWhiteSpace(row.Value) ? "00" : row.Value);
+            var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
+            row.Status = r.Ok ? "OK" : "ERR";
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "初始化", $"0x{ExtSlave7():X2}", r.Ret, r.Ms, data));
+            if (!r.Ok) break;
+        }
+    }
+
+    // ── Profile ──
+
+    private void BtnSave_Click(object sender, RoutedEventArgs e)
+    {
+        string name = (CmbProfile.Text ?? "").Trim();
+        if (name.Length == 0) { MessageBox.Show("输入或选择 Profile 名"); return; }
+        ProfileService.Save(name, RegTable, InitSeq);
+        RefreshProfiles();
+        CmbProfile.Text = name;
+    }
+
+    private void BtnLoad_Click(object sender, RoutedEventArgs e)
+    {
+        if (CmbProfile.SelectedItem is not string name) { MessageBox.Show("先从下拉选择 Profile"); return; }
+        var p = ProfileService.Load(name);
+        if (p is null) { MessageBox.Show("Profile 不存在"); return; }
+        RegTable.Clear();
+        foreach (var r in p.RegTable) RegTable.Add(r);
+        InitSeq.Clear();
+        foreach (var r in p.InitSequence) InitSeq.Add(r);
+    }
+
+    private void BtnDelete_Click(object sender, RoutedEventArgs e)
+    {
+        if (CmbProfile.SelectedItem is not string name) return;
+        ProfileService.Delete(name);
+        RefreshProfiles();
+    }
 
     // ── 周期任务 ──
 
@@ -408,6 +667,13 @@ public partial class I2cPage : UserControl
         if (sender is System.Windows.Controls.GridSplitter { Parent: Grid grid })
             grid.ColumnDefinitions[0].Width = new GridLength(380);
     }
+}
+
+/// <summary>RegRow.Dir("R"/"W") 与 ComboBox 索引互转。</summary>
+public sealed class DirIndexConverter : IValueConverter
+{
+    public object Convert(object? value, Type t, object? p, CultureInfo c) => value as string == "W" ? 1 : 0;
+    public object ConvertBack(object? value, Type t, object? p, CultureInfo c) => value is int i && i == 1 ? "W" : "R";
 }
 
 /// <summary>hex 输入解析：地址 "50"/"0x50"，数据 "DE AD"/"DE.AD.BE"，兼容逗号/分号分隔。</summary>

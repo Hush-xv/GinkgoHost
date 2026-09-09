@@ -53,12 +53,6 @@
                 </ListBoxItem>
                 <ListBoxItem>
                     <StackPanel Orientation="Horizontal" Margin="4">
-                        <ui:SymbolIcon Symbol="GridDots24" Margin="0,0,10,0" />
-                        <TextBlock Text="扩展" VerticalAlignment="Center" />
-                    </StackPanel>
-                </ListBoxItem>
-                <ListBoxItem>
-                    <StackPanel Orientation="Horizontal" Margin="4">
                         <ui:SymbolIcon Symbol="Settings24" Margin="0,0,10,0" />
                         <TextBlock Text="设置" VerticalAlignment="Center" />
                     </StackPanel>
