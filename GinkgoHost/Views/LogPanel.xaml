@@ -58,13 +58,17 @@
         </Style>
     </UserControl.Resources>
 
-    <DockPanel Margin="4,4,4,12">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,0,0,8">
-            <TextBlock Text="Transaction Log" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" />
-            <ui:Button x:Name="BtnClear" Content="清空" Click="BtnClear_Click" Margin="16,0,8,0" />
-            <ui:Button x:Name="BtnExport" Content="导出 CSV" Click="BtnExport_Click" />
-            <TextBlock x:Name="TxtCount" VerticalAlignment="Center" Margin="16,0,0,0" Opacity="0.7" />
-        </StackPanel>
+    <DockPanel Margin="8,4,4,12">
+        <DockPanel DockPanel.Dock="Top" Margin="4,0,0,8" LastChildFill="False">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="事务日志" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" Margin="0" />
+                <TextBlock x:Name="TxtCount" VerticalAlignment="Center" Margin="10,0,0,0" Opacity="0.55" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                <ui:Button x:Name="BtnClear" Content="清空" Click="BtnClear_Click" Margin="0,0,8,0" />
+                <ui:Button x:Name="BtnExport" Content="导出 CSV" Click="BtnExport_Click" />
+            </StackPanel>
+        </DockPanel>
 
         <Border CornerRadius="6" BorderBrush="#1AFFFFFF" BorderThickness="1" Background="#0DFFFFFF">
             <Grid>

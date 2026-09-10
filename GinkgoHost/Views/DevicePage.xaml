@@ -4,11 +4,14 @@
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:views="clr-namespace:GinkgoHost.Views">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="4,4,4,12">
+        <StackPanel Margin="8,6,8,18">
+
+            <TextBlock Text="设备概览" Style="{StaticResource PageTitleStyle}" />
+            <TextBlock Text="查看适配器状态与 VTG200A 接线定义" Style="{StaticResource PageSubtitleStyle}" />
 
             <views:ConnectBar />
 
-            <TextBlock Text="Device Info" FontSize="15" FontWeight="SemiBold" Margin="4,0,0,6" />
+            <TextBlock Text="设备信息" Style="{StaticResource SectionTitleStyle}" />
             <ui:Card Margin="0,0,0,14">
                 <Grid Margin="4">
                     <Grid.ColumnDefinitions>
@@ -31,7 +34,7 @@
                 </Grid>
             </ui:Card>
 
-            <TextBlock Text="Connector · VTG200A 引脚" FontSize="15" FontWeight="SemiBold" Margin="4,0,0,6" />
+            <TextBlock Text="VTG200A 接口与引脚" Style="{StaticResource SectionTitleStyle}" />
             <ui:Card>
                 <StackPanel Margin="8">
                     <TextBlock Text="驱动不提供实时引脚电平，以下为静态接线示意。" Opacity="0.5" Margin="0,0,0,12" />

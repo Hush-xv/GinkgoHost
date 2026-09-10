@@ -12,6 +12,33 @@
             </ResourceDictionary.MergedDictionaries>
             <!-- DataGrid 模板列不在可视树，转换器放 App 级才能被 StaticResource 解析 -->
             <views:DirIndexConverter x:Key="DirIndex" />
+
+            <!-- Shared visual language -->
+            <SolidColorBrush x:Key="AccentBrush" Color="#8B7CF6" />
+            <SolidColorBrush x:Key="MutedTextBrush" Color="#9EA0AD" />
+            <SolidColorBrush x:Key="PanelBrush" Color="#0FFFFFFF" />
+            <SolidColorBrush x:Key="PanelBorderBrush" Color="#18FFFFFF" />
+
+            <Style x:Key="PageTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="24" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Margin" Value="4,0,0,4" />
+            </Style>
+            <Style x:Key="PageSubtitleStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="Margin" Value="4,0,0,18" />
+            </Style>
+            <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontWeight" Value="SemiBold" />
+                <Setter Property="Margin" Value="4,4,0,8" />
+            </Style>
+            <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="12" />
+                <Setter Property="Foreground" Value="{StaticResource MutedTextBrush}" />
+                <Setter Property="Margin" Value="0,0,0,5" />
+            </Style>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

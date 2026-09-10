@@ -18,11 +18,15 @@
     </UserControl.Resources>
 
     <DockPanel>
+        <StackPanel DockPanel.Dock="Top" Margin="8,6,8,0">
+            <TextBlock Text="I²C 工作台" Style="{StaticResource PageTitleStyle}" />
+            <TextBlock Text="配置总线、扫描设备并执行寄存器读写" Style="{StaticResource PageSubtitleStyle}" />
+        </StackPanel>
         <views:ConnectBar DockPanel.Dock="Top" />
 
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="380" MinWidth="300" MaxWidth="700" />
+                <ColumnDefinition Width="344" MinWidth="320" MaxWidth="560" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" MinWidth="300" />
             </Grid.ColumnDefinitions>
@@ -33,66 +37,85 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition />
                 </Grid.RowDefinitions>
-                <Border HorizontalAlignment="Left" Margin="4,4,0,6" CornerRadius="6"
+                <Border HorizontalAlignment="Stretch" Margin="4,2,4,6" CornerRadius="6"
                         Background="#14FFFFFF" Padding="3">
-                    <StackPanel Orientation="Horizontal">
+                    <UniformGrid Rows="1">
                         <ui:Button x:Name="BtnTabMain" Content="主控面板" Appearance="Primary"
-                                   Click="BtnTabMain_Click" MinWidth="96" CornerRadius="4,0,0,4" />
+                                   Click="BtnTabMain_Click" CornerRadius="4,0,0,4" />
                         <ui:Button x:Name="BtnTabExt" Content="🧩 扩展"
-                                   Click="BtnTabExt_Click" MinWidth="96" CornerRadius="0,4,4,0" />
-                    </StackPanel>
+                                   Click="BtnTabExt_Click" CornerRadius="0,4,4,0" />
+                    </UniformGrid>
                 </Border>
 
                 <!-- ── 主控面板 ── -->
                 <ScrollViewer x:Name="MainScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="4,0,4,12">
+                    <StackPanel Margin="4,0,4,8">
 
-                        <TextBlock Text="Settings" FontSize="15" FontWeight="SemiBold" Margin="4,0,0,6" />
-                        <ui:Card Margin="0,0,0,10">
-                            <Grid Margin="4">
+                        <ui:Card Margin="0,0,0,8">
+                            <Grid Margin="5,3">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" />
-                                    <ColumnDefinition Width="24" />
-                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="76" />
+                                    <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="Control Mode" Opacity="0.75" />
-                                    <ComboBox x:Name="CmbCtrlMode" MinWidth="150" Margin="0,4,0,10"
-                                              SelectionChanged="CmbCtrlMode_SelectionChanged">
-                                        <ComboBoxItem Content="Hardware I2C" Tag="1" />
-                                        <ComboBoxItem Content="Software I2C (GPIO)" Tag="2" />
-                                    </ComboBox>
-                                    <TextBlock Text="Clock Frequency" Opacity="0.75" />
-                                    <ComboBox x:Name="CmbSpeed" MinWidth="150" Margin="0,4,0,10" SelectionChanged="CmbSpeed_SelectionChanged">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Text="总线设置" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="板载上拉 · 3.3 V" FontSize="11" Opacity="0.45"
+                                           HorizontalAlignment="Right" VerticalAlignment="Center" />
+
+                                <TextBlock Grid.Row="1" Text="模式" Style="{StaticResource FieldLabelStyle}"
+                                           VerticalAlignment="Center" Margin="0" />
+                                <ComboBox x:Name="CmbCtrlMode" Grid.Row="1" Grid.Column="1" Margin="0,7,0,0"
+                                               SelectionChanged="CmbCtrlMode_SelectionChanged">
+                                    <ComboBoxItem Content="硬件 I²C" Tag="1" />
+                                    <ComboBoxItem Content="软件 I²C (GPIO)" Tag="2" />
+                                </ComboBox>
+
+                                <TextBlock Grid.Row="2" Text="通道 / 频率" Style="{StaticResource FieldLabelStyle}"
+                                           VerticalAlignment="Center" Margin="0" />
+                                <Grid Grid.Row="2" Grid.Column="1" Margin="0,8,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="86" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="CmbChannel" SelectionChanged="CmbChannel_SelectionChanged" />
+                                    <ComboBox x:Name="CmbSpeed" Grid.Column="2" SelectionChanged="CmbSpeed_SelectionChanged">
                                         <ComboBoxItem Content="100 kHz" Tag="100000" />
                                         <ComboBoxItem Content="400 kHz" Tag="400000" />
                                         <ComboBoxItem Content="1 MHz" Tag="1000000" />
                                         <ComboBoxItem Content="1.2 MHz" Tag="1200000" />
                                     </ComboBox>
-                                    <TextBlock Text="Channel" Opacity="0.75" />
-                                    <ComboBox x:Name="CmbChannel" MinWidth="150" Margin="0,4,0,0" SelectionChanged="CmbChannel_SelectionChanged" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="2">
-                                    <ui:ToggleSwitch x:Name="TglNonStd" Content="Non-Standard Frequencies"
-                                                     Checked="TglNonStd_Changed" Unchecked="TglNonStd_Changed" />
-                                    <TextBlock Text="自定义频率 (Hz)" Opacity="0.75" Margin="0,10,0,0" />
-                                    <StackPanel Orientation="Horizontal" Margin="0,4,0,0">
-                                        <ui:TextBox x:Name="TxtCustomHz" Text="200000" MinWidth="130" IsEnabled="False" />
+                                </Grid>
+
+                                <ui:ToggleSwitch x:Name="TglNonStd" Grid.Row="3" Grid.ColumnSpan="2"
+                                                 Content="启用自定义频率" Margin="0,10,0,3"
+                                                 Checked="TglNonStd_Changed" Unchecked="TglNonStd_Changed" />
+                                <TextBlock Grid.Row="4" Text="频率 (Hz)" Style="{StaticResource FieldLabelStyle}"
+                                           VerticalAlignment="Center" Margin="0" />
+                                <Grid Grid.Row="4" Grid.Column="1" Margin="0,5,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <ui:TextBox x:Name="TxtCustomHz" Text="200000" IsEnabled="False"
+                                                PlaceholderText="频率 (Hz)" />
                                         <ui:Button x:Name="BtnApplyHz" Content="应用" IsEnabled="False"
-                                                   Click="BtnApplyHz_Click" Margin="8,0,0,0" />
-                                    </StackPanel>
-                                    <TextBlock FontSize="11" Opacity="0.45" Margin="0,16,0,0" TextWrapping="Wrap"
-                                               Text="Internal Pull-Up Resistors：板载跳线控制（无软件接口）&#x0a;Bus Voltage：固定 3.3 V" />
-                                </StackPanel>
+                                                   Grid.Column="1" Click="BtnApplyHz_Click" Margin="6,0,0,0" />
+                                </Grid>
                             </Grid>
                         </ui:Card>
 
-                        <TextBlock Text="Target Device" FontSize="15" FontWeight="SemiBold" Margin="4,0,0,6" />
-                        <ui:Card Margin="0,0,0,10">
+                        <ui:Card Margin="0,0,0,8">
                             <StackPanel Margin="4">
                                 <DockPanel LastChildFill="False">
-                                    <TextBlock Text="Address" Opacity="0.75" VerticalAlignment="Center" />
-                                    <ui:Button x:Name="BtnScanBus" Content="SCAN" Click="BtnScan_Click"
+                                    <TextBlock Text="目标设备" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <ui:Button x:Name="BtnScanBus" Content="扫描总线" Click="BtnScan_Click"
                                                DockPanel.Dock="Right" HorizontalAlignment="Right"
                                                MinWidth="88" Margin="8,0,0,0" />
                                 </DockPanel>
@@ -108,7 +131,7 @@
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel>
-                                        <TextBlock Text="Address Format" Opacity="0.75" />
+                                        <TextBlock Text="地址格式" Opacity="0.75" />
                                         <ComboBox x:Name="CmbAddrFmt" SelectedIndex="0" Margin="0,4,0,0"
                                                   SelectionChanged="CmbAddrFmt_SelectionChanged">
                                             <ComboBoxItem Content="7-bit" />
@@ -116,7 +139,7 @@
                                         </ComboBox>
                                     </StackPanel>
                                     <StackPanel Grid.Column="2">
-                                        <TextBlock Text="Subaddress: 0x" Opacity="0.75"
+                                        <TextBlock Text="寄存器地址 · 0x" Opacity="0.75"
                                                    ToolTip="寄存器号（子地址）。留空 = 原始读写" />
                                         <ui:TextBox x:Name="TxtSubAddr" Text="00" MaxLength="4" Margin="0,4,0,0"
                                                     FontFamily="Consolas" />
@@ -125,24 +148,28 @@
                             </StackPanel>
                         </ui:Card>
 
-                        <TextBlock Text="Transactions" FontSize="15" FontWeight="SemiBold" Margin="4,0,0,6" />
-                        <ui:Card Margin="0,0,0,10">
+                        <ui:Card Margin="0,0,0,8">
                             <Grid Margin="4">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition />
                                     <ColumnDefinition Width="24" />
                                     <ColumnDefinition />
                                 </Grid.ColumnDefinitions>
-                                <StackPanel>
-                                    <TextBlock Text="Write Buffer" Opacity="0.75" />
+                                <TextBlock Text="读写操作" Grid.ColumnSpan="3" FontWeight="SemiBold" Margin="0,0,0,7" />
+                                <StackPanel Grid.Row="1">
+                                    <TextBlock Text="写入数据" Opacity="0.75" />
                                     <ui:TextBox x:Name="TxtWriteBuf" Text="DE AD BE EF" Margin="0,4,0,8"
                                                 FontFamily="Consolas" />
-                                    <ui:Button x:Name="BtnWrite" Content="WRITE" Appearance="Primary" Click="BtnWrite_Click" />
+                                    <ui:Button x:Name="BtnWrite" Content="写入" Appearance="Primary" Click="BtnWrite_Click" />
                                 </StackPanel>
-                                <StackPanel Grid.Column="2">
-                                    <TextBlock Text="Read Size" Opacity="0.75" />
+                                <StackPanel Grid.Row="1" Grid.Column="2">
+                                    <TextBlock Text="读取长度" Opacity="0.75" />
                                     <ui:TextBox x:Name="TxtReadSize" Text="8" Margin="0,4,0,8" />
-                                    <ui:Button x:Name="BtnRead" Content="READ" Click="BtnRead_Click" />
+                                    <ui:Button x:Name="BtnRead" Content="读取" Click="BtnRead_Click" />
                                     <TextBlock x:Name="TxtReadResult" Text=" " Margin="0,8,0,0" FontFamily="Consolas"
                                                TextWrapping="Wrap" Foreground="#9a86fd" />
                                 </StackPanel>

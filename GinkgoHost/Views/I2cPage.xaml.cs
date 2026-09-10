@@ -573,7 +573,7 @@ public partial class I2cPage : UserControl
     private void Splitter_DoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (sender is System.Windows.Controls.GridSplitter { Parent: Grid grid })
-            grid.ColumnDefinitions[0].Width = new GridLength(380);
+            grid.ColumnDefinitions[0].Width = new GridLength(344);
     }
 }
 
