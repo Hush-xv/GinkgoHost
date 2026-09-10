@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using GinkgoHost.Models;
 using GinkgoHost.Native;
 
@@ -32,6 +33,15 @@ public partial class ConnectBar : UserControl
             bool on = App.Bus.IsOpen;
             // 圆点与徽章：色彩 + 形状 + 文字三重区分，不依赖单一颜色
             DotState.Fill = on ? DotOn : DotOff;
+            // 连接态圆点呼吸动画，断开时停止
+            DotState.BeginAnimation(OpacityProperty,
+                on ? new DoubleAnimation(1, 0.35, new Duration(TimeSpan.FromMilliseconds(900)))
+                   {
+                       AutoReverse = true,
+                       RepeatBehavior = RepeatBehavior.Forever,
+                       EasingFunction = new QuadraticEase()
+                   }
+                   : null);
             BadgeState.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
             TxtBadge.Text = "ONLINE";
             BadgeState.Background = BadgeOnBg;

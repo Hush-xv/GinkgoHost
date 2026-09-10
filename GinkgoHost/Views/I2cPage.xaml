@@ -33,12 +33,15 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition />
                 </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Margin="4,4,0,6">
-                    <ui:Button x:Name="BtnTabMain" Content="主控面板" Appearance="Primary"
-                               Click="BtnTabMain_Click" MinWidth="96" Margin="0,0,6,0" />
-                    <ui:Button x:Name="BtnTabExt" Content="🧩 扩展"
-                               Click="BtnTabExt_Click" MinWidth="96" />
-                </StackPanel>
+                <Border HorizontalAlignment="Left" Margin="4,4,0,6" CornerRadius="6"
+                        Background="#14FFFFFF" Padding="3">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:Button x:Name="BtnTabMain" Content="主控面板" Appearance="Primary"
+                                   Click="BtnTabMain_Click" MinWidth="96" CornerRadius="4,0,0,4" />
+                        <ui:Button x:Name="BtnTabExt" Content="🧩 扩展"
+                                   Click="BtnTabExt_Click" MinWidth="96" CornerRadius="0,4,4,0" />
+                    </StackPanel>
+                </Border>
 
                 <!-- ── 主控面板 ── -->
                 <ScrollViewer x:Name="MainScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto">
@@ -115,7 +118,8 @@
                                     <StackPanel Grid.Column="2">
                                         <TextBlock Text="Subaddress: 0x" Opacity="0.75"
                                                    ToolTip="寄存器号（子地址）。留空 = 原始读写" />
-                                        <ui:TextBox x:Name="TxtSubAddr" Text="00" MaxLength="4" Margin="0,4,0,0" />
+                                        <ui:TextBox x:Name="TxtSubAddr" Text="00" MaxLength="4" Margin="0,4,0,0"
+                                                    FontFamily="Consolas" />
                                     </StackPanel>
                                 </Grid>
                             </StackPanel>
@@ -131,7 +135,8 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel>
                                     <TextBlock Text="Write Buffer" Opacity="0.75" />
-                                    <ui:TextBox x:Name="TxtWriteBuf" Text="DE AD BE EF" Margin="0,4,0,8" />
+                                    <ui:TextBox x:Name="TxtWriteBuf" Text="DE AD BE EF" Margin="0,4,0,8"
+                                                FontFamily="Consolas" />
                                     <ui:Button x:Name="BtnWrite" Content="WRITE" Appearance="Primary" Click="BtnWrite_Click" />
                                 </StackPanel>
                                 <StackPanel Grid.Column="2">
