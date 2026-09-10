@@ -22,7 +22,9 @@ public static class ProfileService
     }
 
     public static IReadOnlyList<string> List() =>
-        Directory.GetFiles(Dir(), "*.json").Select(Path.GetFileNameWithoutExtension).OrderBy(n => n).ToList();
+        Directory.GetFiles(Dir(), "*.json")
+                 .Select(p => Path.GetFileNameWithoutExtension(p)!)
+                 .OrderBy(n => n).ToList();
 
     public static void Save(string name, IReadOnlyList<RegRow> regTable, IReadOnlyList<RegRow> initSeq)
     {
