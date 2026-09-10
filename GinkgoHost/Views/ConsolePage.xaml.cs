@@ -16,6 +16,7 @@ public partial class ConsolePage : UserControl
     private readonly ObservableCollection<ConsoleLine> _out = new();
     private readonly List<string> _history = new();
     private int _historyIdx;
+    private bool _executing;
 
     private static readonly Brush Cyan = new SolidColorBrush(Color.FromRgb(0x90, 0xca, 0xf9));
     private static readonly Brush Purple = new SolidColorBrush(Color.FromRgb(0x9a, 0x86, 0xfd));
@@ -37,8 +38,17 @@ public partial class ConsolePage : UserControl
         LstOut.ScrollIntoView(LstOut.Items[^1]);
     }
 
+    private void BtnClearOutput_Click(object sender, RoutedEventArgs e)
+    {
+        Dbg.Log($"ConsolePage.BtnClearOutput_Click: clear {_out.Count} lines");
+        _out.Clear();
+        Print("输出已清空。输入 help 查看命令。", Gray);
+        TxtIn.Focus();
+    }
+
     private async void TxtIn_KeyDown(object sender, KeyEventArgs e)
     {
+        if (_executing) return;
         if (e.Key == Key.Up)
         {
             if (_history.Count == 0) return;
@@ -72,6 +82,10 @@ public partial class ConsolePage : UserControl
             Print(err ?? "解析失败", Red);
             return;
         }
+        _executing = true;
+        TxtIn.IsEnabled = false;
+        TxtConsoleState.Text = "执行中…";
+        Dbg.Log($"ConsolePage.TxtIn_KeyDown: execute {cmd.GetType().Name}");
         try
         {
             await Exec(cmd);
@@ -79,6 +93,14 @@ public partial class ConsolePage : UserControl
         catch (Exception ex)
         {
             Print(ex.Message, Red);
+        }
+        finally
+        {
+            _executing = false;
+            TxtIn.IsEnabled = true;
+            TxtConsoleState.Text = "就绪";
+            TxtIn.Focus();
+            Dbg.Log($"ConsolePage.TxtIn_KeyDown: completed {cmd.GetType().Name}");
         }
     }
 

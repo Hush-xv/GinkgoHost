@@ -13,6 +13,8 @@ public sealed class SettingsService
     public string LastSubAddr { get; set; } = "00";
     public int AddrFmt { get; set; } = 0; // 0=7-bit 1=8-bit，与地址框一起持久化
     public int ControlMode { get; set; } = 1; // 1=硬件 I2C 2=软件 I2C（GPIO）
+    public double ExtPanelWidth { get; set; } = 480;
+    public double LogPanelRatio { get; set; } = 0.65;
 
     private static string FilePath()
     {

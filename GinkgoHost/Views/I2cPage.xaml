@@ -2,7 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-             xmlns:views="clr-namespace:GinkgoHost.Views">
+             xmlns:views="clr-namespace:GinkgoHost.Views"
+             Focusable="True" PreviewKeyDown="I2cPage_PreviewKeyDown">
     <UserControl.Resources>
         <!-- 行状态文字：OK 绿 / ERR 红 -->
         <Style x:Key="RowStatusStyle" TargetType="TextBlock">
@@ -18,25 +19,30 @@
     </UserControl.Resources>
 
     <DockPanel>
-        <StackPanel DockPanel.Dock="Top" Margin="8,6,8,0">
-            <TextBlock Text="I²C 工作台" Style="{StaticResource PageTitleStyle}" />
-            <TextBlock Text="配置总线、扫描设备并执行寄存器读写" Style="{StaticResource PageSubtitleStyle}" />
-        </StackPanel>
-
         <!-- ═══ 总线设置条 ═══ -->
         <Border DockPanel.Dock="Top" Margin="8,0,8,8" CornerRadius="6" Padding="14,8"
-                Background="#14FFFFFF" BorderBrush="#1AFFFFFF" BorderThickness="1">
-            <DockPanel LastChildFill="False">
-                <StackPanel Orientation="Horizontal">
+                Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
+            <DockPanel LastChildFill="True">
+                <Border DockPanel.Dock="Right" CornerRadius="6"
+                        Background="{DynamicResource ControlFillColorDefaultBrush}" Padding="3" Margin="14,0,0,0">
+                    <UniformGrid Rows="1">
+                        <ui:Button x:Name="BtnTabMain" Content="基础操作" Appearance="Primary"
+                                   Click="BtnTabMain_Click" CornerRadius="4,0,0,4" />
+                        <ui:Button x:Name="BtnTabExt" Content="寄存器工具"
+                                   Click="BtnTabExt_Click" CornerRadius="0,4,4,0" />
+                    </UniformGrid>
+                </Border>
+                <WrapPanel VerticalAlignment="Center">
                     <TextBlock Text="模式" VerticalAlignment="Center" Opacity="0.65" />
-                    <ComboBox x:Name="CmbCtrlMode" MinWidth="120" Margin="8,0,18,0" SelectionChanged="CmbCtrlMode_SelectionChanged">
+                    <ComboBox x:Name="CmbCtrlMode" MinWidth="120" Margin="8,0,16,0" SelectionChanged="CmbCtrlMode_SelectionChanged">
                         <ComboBoxItem Content="硬件 I²C" Tag="1" />
                         <ComboBoxItem Content="软件 I²C (GPIO)" Tag="2" />
                     </ComboBox>
                     <TextBlock Text="通道" VerticalAlignment="Center" Opacity="0.65" />
-                    <ComboBox x:Name="CmbChannel" MinWidth="92" Margin="8,0,18,0" SelectionChanged="CmbChannel_SelectionChanged" />
+                    <ComboBox x:Name="CmbChannel" MinWidth="92" Margin="8,0,16,0" SelectionChanged="CmbChannel_SelectionChanged" />
                     <TextBlock Text="速率" VerticalAlignment="Center" Opacity="0.65" />
-                    <ComboBox x:Name="CmbSpeed" MinWidth="110" Margin="8,0,18,0" SelectionChanged="CmbSpeed_SelectionChanged">
+                    <ComboBox x:Name="CmbSpeed" MinWidth="110" Margin="8,0,16,0" SelectionChanged="CmbSpeed_SelectionChanged">
                         <ComboBoxItem Content="100 kHz" Tag="100000" />
                         <ComboBoxItem Content="400 kHz" Tag="400000" />
                         <ComboBoxItem Content="1 MHz" Tag="1000000" />
@@ -44,52 +50,35 @@
                     </ComboBox>
                     <ui:ToggleSwitch x:Name="TglNonStd" Content="自定义频率" VerticalAlignment="Center"
                                      Checked="TglNonStd_Changed" Unchecked="TglNonStd_Changed" />
-                    <ui:TextBox x:Name="TxtCustomHz" Text="200000" Width="90" IsEnabled="False" Margin="10,0,0,0" />
-                    <ui:Button x:Name="BtnApplyHz" Content="应用" IsEnabled="False" Click="BtnApplyHz_Click" Margin="6,0,0,0" />
-                </StackPanel>
-                <Border DockPanel.Dock="Right" CornerRadius="6" Background="#14FFFFFF" Padding="3">
-                    <UniformGrid Rows="1">
-                        <ui:Button x:Name="BtnTabMain" Content="主控面板" Appearance="Primary"
-                                   Click="BtnTabMain_Click" CornerRadius="4,0,0,4" />
-                        <ui:Button x:Name="BtnTabExt" Content="🧩 扩展"
-                                   Click="BtnTabExt_Click" CornerRadius="0,4,4,0" />
-                    </UniformGrid>
-                </Border>
+                    <Grid Margin="10,0,0,0">
+                        <Grid.Style>
+                            <Style TargetType="Grid">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsChecked, ElementName=TglNonStd}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Grid.Style>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="90" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <ui:TextBox x:Name="TxtCustomHz" Text="200000" IsEnabled="False" />
+                        <ui:Button x:Name="BtnApplyHz" Grid.Column="1" Content="应用" IsEnabled="False"
+                                   Click="BtnApplyHz_Click" Margin="6,0,0,0" />
+                    </Grid>
+                </WrapPanel>
             </DockPanel>
         </Border>
 
         <Grid>
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="344" MinWidth="320" MaxWidth="560" />
+                <ColumnDefinition x:Name="ControlColumn" Width="0" MinWidth="0" MaxWidth="560" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" MinWidth="300" />
             </Grid.ColumnDefinitions>
-
-            <!-- ── 主控面板 ── -->
-            <ScrollViewer x:Name="MainScroll" Grid.Column="0" VerticalScrollBarVisibility="Auto">
-                    <StackPanel Margin="4,0,4,8">
-
-                        <!-- 连接控制（紧凑） -->
-                        <ui:Card Margin="0,0,0,8" Padding="10,8">
-                            <DockPanel LastChildFill="False">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Ellipse x:Name="DotConn" Width="10" Height="10" Fill="#757575" VerticalAlignment="Center" />
-                                    <StackPanel Margin="9,0,0,0" VerticalAlignment="Center">
-                                        <TextBlock x:Name="TxtConnMain" Text="未连接" />
-                                        <TextBlock x:Name="TxtConnSub" Text="点击「连接」" FontSize="11" Opacity="0.55" />
-                                    </StackPanel>
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
-                                    <ui:Button x:Name="BtnConn" Content="连接" Appearance="Primary" MinWidth="64"
-                                               Click="BtnConn_Click" />
-                                    <ui:Button x:Name="BtnDisc" Content="断开" MinWidth="64" Margin="6,0,0,0"
-                                               Click="BtnDisc_Click" IsEnabled="False" />
-                                </StackPanel>
-                            </DockPanel>
-                        </ui:Card>
-
-                    </StackPanel>
-                </ScrollViewer>
 
             <!-- ── 扩展面板 ── -->
             <Grid x:Name="ExtPanel" Grid.Column="0" Visibility="Collapsed" Margin="0,0,4,12">
@@ -100,7 +89,7 @@
                     </Grid.RowDefinitions>
 
                     <ui:Card Margin="0,0,0,10">
-                        <StackPanel Orientation="Horizontal" Margin="4">
+                        <WrapPanel Margin="4">
                             <TextBlock Text="从机地址" VerticalAlignment="Center" Opacity="0.75"
                                        ToolTip="7 位地址（hex），如 8 位标注的 0x92 请填 49" />
                             <ui:TextBox x:Name="TxtSlave" Text="49" Width="64" MaxLength="4" Margin="8,0,16,0" />
@@ -109,24 +98,20 @@
                                 <ComboBoxItem Content="Reg 8Bit" Tag="1" />
                                 <ComboBoxItem Content="Reg 16Bit" Tag="2" />
                             </ComboBox>
-                        </StackPanel>
+                        </WrapPanel>
                     </ui:Card>
 
-                    <DockPanel Grid.Row="1" Margin="4,0,0,6" LastChildFill="False">
-                        <StackPanel Orientation="Horizontal">
-                            <ui:Button x:Name="BtnSubReg" Content="寄存器表" Appearance="Primary"
-                                       Click="BtnSubReg_Click" MinWidth="96" Margin="0,0,6,0" />
-                            <ui:Button x:Name="BtnSubInit" Content="初始化序列"
-                                       Click="BtnSubInit_Click" MinWidth="96" />
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
-                            <TextBlock Text="Profile" VerticalAlignment="Center" Opacity="0.75" />
-                            <ComboBox x:Name="CmbProfile" MinWidth="120" Margin="8,0,0,0" />
-                            <ui:Button x:Name="BtnSave" Content="保存" Click="BtnSave_Click" Margin="8,0,0,0" />
-                            <ui:Button x:Name="BtnLoad" Content="载入" Click="BtnLoad_Click" Margin="8,0,0,0" />
-                            <ui:Button x:Name="BtnDelete" Content="删除" Click="BtnDelete_Click" Margin="8,0,0,0" />
-                        </StackPanel>
-                    </DockPanel>
+                    <WrapPanel Grid.Row="1" Margin="4,0,0,6">
+                        <ui:Button x:Name="BtnSubReg" Content="寄存器表" Appearance="Primary"
+                                   Click="BtnSubReg_Click" MinWidth="96" Margin="0,0,6,6" />
+                        <ui:Button x:Name="BtnSubInit" Content="初始化序列"
+                                   Click="BtnSubInit_Click" MinWidth="96" Margin="0,0,18,6" />
+                        <TextBlock Text="Profile" VerticalAlignment="Center" Opacity="0.75" Margin="0,0,8,6" />
+                        <ComboBox x:Name="CmbProfile" MinWidth="120" Margin="0,0,8,6" />
+                        <ui:Button x:Name="BtnSave" Content="保存" Click="BtnSave_Click" MinWidth="64" Margin="0,0,6,6" />
+                        <ui:Button x:Name="BtnLoad" Content="载入" Click="BtnLoad_Click" MinWidth="64" Margin="0,0,6,6" />
+                        <ui:Button x:Name="BtnDelete" Content="删除" Click="BtnDelete_Click" MinWidth="64" Margin="0,0,0,6" />
+                    </WrapPanel>
 
                     <Grid Grid.Row="2">
                         <!-- 寄存器表 -->
@@ -137,12 +122,14 @@
                             </Grid.RowDefinitions>
                             <DockPanel Margin="0,0,0,6" LastChildFill="False">
                                 <ui:Button x:Name="BtnAddRow" Content="添加行" Click="BtnAddRow_Click" />
-                                <ui:Button x:Name="BtnDelRow" Content="删除选中" Click="BtnDelRow_Click" Margin="8,0,12,0" />
+                                <ui:Button x:Name="BtnDelRow" Content="删除选中" Click="BtnDelRow_Click"
+                                           IsEnabled="False" Margin="8,0,12,0" />
                                 <ui:Button x:Name="BtnReadAll" Content="一键读取全部" Appearance="Primary"
                                            Click="BtnReadAll_Click" MinWidth="110" DockPanel.Dock="Right" />
                             </DockPanel>
                             <DataGrid x:Name="GridReg" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False"
                                       HeadersVisibility="Column" MinHeight="200"
+                                      SelectionChanged="GridReg_SelectionChanged"
                                       RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
                                       FontFamily="Consolas" FontSize="12"
                                       ScrollViewer.HorizontalScrollBarVisibility="Auto">
@@ -183,12 +170,14 @@
                             </Grid.RowDefinitions>
                             <DockPanel Margin="0,0,0,6" LastChildFill="False">
                                 <ui:Button x:Name="BtnAddInit" Content="添加行" Click="BtnAddInit_Click" />
-                                <ui:Button x:Name="BtnDelInit" Content="删除选中" Click="BtnDelInit_Click" Margin="8,0,12,0" />
+                                <ui:Button x:Name="BtnDelInit" Content="删除选中" Click="BtnDelInit_Click"
+                                           IsEnabled="False" Margin="8,0,12,0" />
                                 <ui:Button x:Name="BtnRunInit" Content="一键初始化" Appearance="Primary"
                                            Click="BtnRunInit_Click" MinWidth="110" DockPanel.Dock="Right" />
                             </DockPanel>
                             <DataGrid x:Name="GridInit" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False"
                                       HeadersVisibility="Column" MinHeight="200"
+                                      SelectionChanged="GridInit_SelectionChanged"
                                       RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
                                       FontFamily="Consolas" FontSize="12">
                             <DataGrid.Columns>
@@ -223,71 +212,106 @@
                     </Grid>
             </Grid>
 
-            <GridSplitter Grid.Column="1" Width="6" HorizontalAlignment="Center" VerticalAlignment="Stretch"
-                          Background="Transparent" ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
+            <GridSplitter x:Name="PanelSplitter" Grid.Column="1" Width="8" HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                          Visibility="Collapsed"
+                          Style="{StaticResource WorkspaceSplitterStyle}"
+                          ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
+                          Cursor="SizeWE" ShowsPreview="True"
+                          DragCompleted="PanelSplitter_DragCompleted"
                           MouseDoubleClick="Splitter_DoubleClick" ToolTip="拖拽调整 · 双击复位" />
 
             <Grid Grid.Column="2" MinWidth="300" Margin="0,4,4,12">
                 <Grid.RowDefinitions>
-                    <RowDefinition />
+                    <RowDefinition x:Name="LogRow" Height="13*" MinHeight="180" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition x:Name="DataRow" Height="7*" MinHeight="190" />
                 </Grid.RowDefinitions>
                 <views:LogPanel x:Name="LogView" />
 
-                <!-- 读写操作（JI2C 底部布局）：从机地址列 | 数据显示区 | 控制列 -->
-                <ui:Card Grid.Row="1" Margin="0,8,0,0" Padding="10,8">
+                <GridSplitter x:Name="LogSplitter" Grid.Row="1" Height="8"
+                              HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                              Style="{StaticResource WorkspaceSplitterStyle}"
+                              ResizeDirection="Rows" Cursor="SizeNS"
+                              ResizeBehavior="PreviousAndNext" ShowsPreview="True"
+                              DragCompleted="LogSplitter_DragCompleted"
+                              MouseDoubleClick="LogSplitter_DoubleClick"
+                              ToolTip="上下拖动调整区域 · 双击复位" />
+
+                <!-- 数据操作：目标参数 | 命令编辑器 | 读取结果 -->
+                <ui:Card Grid.Row="2" Margin="0,8,0,0" Padding="10,8">
                     <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="150" />
-                            <ColumnDefinition Width="16" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="16" />
-                            <ColumnDefinition Width="140" />
-                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" MinHeight="86" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
 
-                        <!-- 从机地址组 -->
-                        <StackPanel>
-                            <TextBlock Text="从机地址" Opacity="0.75" ToolTip="7 位地址（hex），如 8 位标注的 0x92 请填 49" />
-                            <ui:TextBox x:Name="TxtAddr" Margin="0,4,0,0" FontFamily="Consolas"
-                                        GotFocus="TxtAddr_GotFocus" TextChanged="TxtAddr_TextChanged" />
-                            <TextBlock Text="地址格式" Opacity="0.75" Margin="0,8,0,0" />
-                            <ComboBox x:Name="CmbAddrFmt" SelectedIndex="0" Margin="0,4,0,0"
-                                      SelectionChanged="CmbAddrFmt_SelectionChanged">
-                                <ComboBoxItem Content="7-bit" />
-                                <ComboBoxItem Content="8-bit" />
-                            </ComboBox>
-                            <TextBlock Text="寄存器地址 · 0x" Opacity="0.75" Margin="0,8,0,0"
-                                       ToolTip="寄存器号（子地址）。留空 = 原始读写" />
-                            <ui:TextBox x:Name="TxtSubAddr" Text="00" MaxLength="4" Margin="0,4,0,0"
-                                        FontFamily="Consolas" />
-                            <ui:Button x:Name="BtnScanBus" Content="扫描总线" Click="BtnScan_Click"
-                                       HorizontalAlignment="Left" MinWidth="88" Margin="0,10,0,0" />
-                            <TextBlock x:Name="TxtScanResult" Text="—" Opacity="0.85" Margin="0,8,0,0"
-                                       TextWrapping="Wrap" />
-                            <WrapPanel x:Name="ChipPanel" Margin="0,4,0,0" />
-                        </StackPanel>
+                        <TextBlock Text="数据操作" FontWeight="SemiBold" Margin="0,0,0,7" />
 
-                        <!-- 数据列：写入数据 + 回显区 -->
-                        <StackPanel Grid.Column="2">
-                            <TextBlock Text="写入数据" Opacity="0.75" />
-                            <ui:TextBox x:Name="TxtWriteBuf" Text="DE AD BE EF" Margin="0,4,0,0"
-                                        FontFamily="Consolas" />
-                            <TextBlock Text="读到的数据" Opacity="0.75" Margin="0,10,0,4" />
-                            <Border CornerRadius="4" Background="#141414" Padding="12,8">
-                                <TextBlock x:Name="TxtReadResult" Text="—— 点「读」查看数据 ——" FontFamily="Consolas"
-                                           FontSize="15" Foreground="#C4B9FE" TextWrapping="Wrap" />
+                        <!-- 单行参数工具栏；空间不足时控件自动换行 -->
+                        <WrapPanel Grid.Row="1" Margin="0,0,0,6">
+                            <StackPanel Width="104" Margin="0,0,10,6">
+                                <TextBlock Text="从机地址" Style="{StaticResource FieldLabelStyle}"
+                                           ToolTip="7 位地址（hex），如 8 位标注的 0x92 请填 49" />
+                                <ui:TextBox x:Name="TxtAddr" FontFamily="Consolas"
+                                            TextChanged="TxtAddr_TextChanged" />
+                            </StackPanel>
+                            <StackPanel Width="94" Margin="0,0,10,6">
+                                <TextBlock Text="地址格式" Style="{StaticResource FieldLabelStyle}" />
+                                <ComboBox x:Name="CmbAddrFmt" SelectedIndex="0"
+                                          SelectionChanged="CmbAddrFmt_SelectionChanged">
+                                    <ComboBoxItem Content="7-bit" />
+                                    <ComboBoxItem Content="8-bit" />
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Width="116" Margin="0,0,10,6">
+                                <TextBlock Text="寄存器地址 · 0x" Style="{StaticResource FieldLabelStyle}"
+                                           ToolTip="寄存器号（子地址）。留空 = 原始读写" />
+                                <ui:TextBox x:Name="TxtSubAddr" Text="00" MaxLength="2" FontFamily="Consolas"
+                                            TextChanged="TxtSubAddr_TextChanged" />
+                            </StackPanel>
+                            <ui:Button x:Name="BtnScanBus" Content="扫描总线" Click="BtnScan_Click" IsEnabled="False"
+                                       MinWidth="96" Margin="0,19,0,6" VerticalAlignment="Top"
+                                       ToolTip="扫描当前通道上的从机地址 (F5)" />
+
+                            <Border Width="1" Height="34" Margin="14,19,14,6"
+                                    Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                            <Border Margin="0,13,0,6" Padding="8,5" CornerRadius="5"
+                                    Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                                    BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                    BorderThickness="1">
+                                <WrapPanel>
+                                <TextBlock Text="数据缓冲区 · HEX" Style="{StaticResource FieldLabelStyle}"
+                                           VerticalAlignment="Center" Margin="0,0,16,0" />
+                                <TextBlock Text="读取长度" Style="{StaticResource FieldLabelStyle}"
+                                           VerticalAlignment="Center" Margin="0,0,6,0" />
+                                <ui:TextBox x:Name="TxtReadSize" Text="8" Width="64" Margin="0,0,12,0"
+                                            TextChanged="TxtReadSize_TextChanged" />
+                                <CheckBox x:Name="ChkWriteRead" Content="写后读取"
+                                          VerticalAlignment="Center" Margin="0,0,14,0" />
+                                <ui:Button x:Name="BtnRead" Content="读取" Click="BtnRead_Click" IsEnabled="False"
+                                           MinWidth="72" Margin="0,0,6,0"
+                                           ToolTip="读取数据 (Ctrl+R)" />
+                                <ui:Button x:Name="BtnWrite" Content="写入" Appearance="Primary" IsEnabled="False"
+                                           Click="BtnWrite_Click" MinWidth="72"
+                                           ToolTip="写入数据 (Ctrl+W)" />
+                                </WrapPanel>
                             </Border>
-                        </StackPanel>
+                        </WrapPanel>
 
-                        <!-- 控制列 -->
-                        <StackPanel Grid.Column="4">
-                            <TextBlock Text="读/写长度" Opacity="0.75" />
-                            <ui:TextBox x:Name="TxtReadSize" Text="8" Margin="0,4,0,10" />
-                            <CheckBox x:Name="ChkReadUpdate" Content="读完更新" Margin="0,2,0,0" />
-                            <CheckBox x:Name="ChkWriteRead" Content="写后读取" Margin="0,4,0,12" />
-                            <ui:Button x:Name="BtnRead" Content="读" Click="BtnRead_Click" Margin="0,0,0,6" />
-                            <ui:Button x:Name="BtnWrite" Content="写" Appearance="Primary" Click="BtnWrite_Click" />
-                        </StackPanel>
+                        <ui:TextBox x:Name="TxtDataBuffer" Grid.Row="2" Text="DE AD BE EF"
+                                    FontFamily="Consolas" FontSize="14" AcceptsReturn="True"
+                                    TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                    VerticalContentAlignment="Top" TextChanged="TxtDataBuffer_TextChanged"
+                                    PlaceholderText="输入待写数据；读取结果会显示在这里" />
+
+                        <DockPanel Grid.Row="3" Margin="2,5,0,0">
+                            <TextBlock x:Name="TxtBufferMeta" Text="4 字节" DockPanel.Dock="Right"
+                                       FontSize="11" Opacity="0.5" />
+                            <TextBlock x:Name="TxtDataStatus" Text="输入数据后写入，或直接读取"
+                                       FontSize="11" Opacity="0.65" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
                     </Grid>
                 </ui:Card>
             </Grid>

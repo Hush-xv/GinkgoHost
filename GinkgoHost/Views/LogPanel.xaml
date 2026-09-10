@@ -63,14 +63,20 @@
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="事务日志" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" Margin="0" />
                 <TextBlock x:Name="TxtCount" VerticalAlignment="Center" Margin="10,0,0,0" Opacity="0.55" />
+                <TextBlock x:Name="TxtFeedback" VerticalAlignment="Center" Margin="10,0,0,0"
+                           Foreground="#81C784" FontSize="11" />
             </StackPanel>
             <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                <CheckBox x:Name="ChkFollow" Content="跟随最新" IsChecked="True"
+                          Checked="ChkFollow_Changed" Unchecked="ChkFollow_Changed"
+                          VerticalAlignment="Center" Margin="0,0,12,0" />
                 <ui:Button x:Name="BtnClear" Content="清空" Click="BtnClear_Click" Margin="0,0,8,0" />
                 <ui:Button x:Name="BtnExport" Content="导出 CSV" Click="BtnExport_Click" />
             </StackPanel>
         </DockPanel>
 
-        <Border CornerRadius="6" BorderBrush="#1AFFFFFF" BorderThickness="1" Background="#0DFFFFFF">
+        <Border CornerRadius="6" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                BorderThickness="1" Background="{DynamicResource ControlFillColorSecondaryBrush}">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
@@ -81,12 +87,12 @@
                 <Border Padding="8,6" BorderBrush="#22FFFFFF" BorderThickness="0,0,0,1">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="96" />
-                            <ColumnDefinition Width="52" />
-                            <ColumnDefinition Width="110" />
-                            <ColumnDefinition Width="64" />
+                            <ColumnDefinition Width="84" />
+                            <ColumnDefinition Width="46" />
+                            <ColumnDefinition Width="92" />
+                            <ColumnDefinition Width="58" />
+                            <ColumnDefinition Width="62" />
                             <ColumnDefinition Width="70" />
-                            <ColumnDefinition Width="78" />
                             <ColumnDefinition />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="时间" FontSize="11" Opacity="0.5" />
@@ -127,12 +133,12 @@
                                     </Style>
                                 </Grid.Style>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="96" />
-                                    <ColumnDefinition Width="52" />
-                                    <ColumnDefinition Width="110" />
-                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition Width="84" />
+                                    <ColumnDefinition Width="46" />
+                                    <ColumnDefinition Width="92" />
+                                    <ColumnDefinition Width="58" />
+                                    <ColumnDefinition Width="62" />
                                     <ColumnDefinition Width="70" />
-                                    <ColumnDefinition Width="78" />
                                     <ColumnDefinition />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="{Binding Time}" Opacity="0.6" FontFamily="Consolas" VerticalAlignment="Center" />

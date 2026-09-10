@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -19,12 +20,7 @@ namespace GinkgoHost.Views;
 public partial class I2cPage : UserControl
 {
     private bool _scanning;
-    private bool _suppressScan; // chip 点击程序化聚焦地址框时，抑制 GotFocus 的自动扫描
-    private List<byte> _lastHits = new();
-    private CancellationTokenSource? _extPeriodCts;
-    private bool _extPeriodRunning;
-    private static readonly Brush DotOn = new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50));
-    private static readonly Brush DotOff = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+    private bool _operationBusy;
     // XAML 加载期 SelectionChanged 就会触发，_loading 初始为 true，RestoreSettings 完成后才放行
     private bool _loading = true;
 
@@ -34,65 +30,16 @@ public partial class I2cPage : UserControl
         LogView.Init(App.Log);
         GridReg.ItemsSource = RegTable;
         GridInit.ItemsSource = InitSeq;
-        App.Bus.StateChanged += RefreshConn;
         Loaded += (_, _) =>
         {
-            RefreshConn();
             RestoreSettings();
             RefreshProfiles();
+            App.Bus.StateChanged -= RefreshOperationAvailability;
+            App.Bus.StateChanged += RefreshOperationAvailability;
+            RefreshOperationAvailability();
         };
-        Unloaded += (_, _) => App.Bus.StateChanged -= RefreshConn;
+        Unloaded += (_, _) => App.Bus.StateChanged -= RefreshOperationAvailability;
         ShowExtSub("reg");
-    }
-
-    /// <summary>紧凑连接状态刷新（左栏卡片）。</summary>
-    private void RefreshConn()
-    {
-        Dispatcher.Invoke(() =>
-        {
-            bool on = App.Bus.IsOpen;
-            DotConn.Fill = on ? DotOn : DotOff;
-            if (on)
-            {
-                string bus = App.Bus.ControlMode == GinkgoDriver.VII_SCTL_MODE
-                    ? "软件 I2C"
-                    : $"{App.Bus.ClockHz / 1000} kHz";
-                TxtConnMain.Text = "已连接";
-                TxtConnSub.Text = $"通道 {App.Bus.Channel} · {bus}";
-            }
-            else
-            {
-                TxtConnMain.Text = "未连接";
-                TxtConnSub.Text = "点击「连接」";
-            }
-            BtnConn.IsEnabled = !on;
-            BtnDisc.IsEnabled = on;
-        });
-    }
-
-    private async void BtnConn_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var (count, ret) = await App.Bus.ConnectAsync(
-                App.Settings.Channel, App.Settings.ClockHz, (byte)App.Settings.ControlMode);
-            if (count <= 0)
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", ret, 0, null));
-            else if (ret != 0)
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", ret, 0,
-                    System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(ret))));
-        }
-        catch (Exception ex)
-        {
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", -1, 0,
-                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-        }
-    }
-
-    private async void BtnDisc_Click(object sender, RoutedEventArgs e)
-    {
-        await App.Bus.CloseAsync();
-        App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "断开适配器", "—", 0, 0, null));
     }
 
     private void RestoreSettings()
@@ -105,11 +52,15 @@ public partial class I2cPage : UserControl
         int idx = Array.IndexOf(new uint[] { 100000, 400000, 1000000, 1200000 }, s.ClockHz);
         if (idx >= 0) { CmbSpeed.SelectedIndex = idx; TglNonStd.IsChecked = false; }
         else { CmbSpeed.SelectedIndex = 1; TglNonStd.IsChecked = true; TxtCustomHz.Text = s.ClockHz.ToString(); }
+        CmbAddrFmt.SelectedIndex = Math.Clamp(s.AddrFmt, 0, 1);
         TxtAddr.Text = s.LastAddr;
         TxtSubAddr.Text = s.LastSubAddr;
-        CmbAddrFmt.SelectedIndex = Math.Clamp(s.AddrFmt, 0, 1);
+        double ratio = Math.Clamp(s.LogPanelRatio, 0.3, 0.8);
+        LogRow.Height = new GridLength(ratio, GridUnitType.Star);
+        DataRow.Height = new GridLength(1 - ratio, GridUnitType.Star);
         UpdateSpeedControlsEnabled();
         _loading = false;
+        ValidateTargetInputs();
     }
 
     private void SaveSettings()
@@ -190,8 +141,12 @@ public partial class I2cPage : UserControl
 
     private void ShowExtTab(bool ext)
     {
-        MainScroll.Visibility = ext ? Visibility.Collapsed : Visibility.Visible;
         ExtPanel.Visibility = ext ? Visibility.Visible : Visibility.Collapsed;
+        ControlColumn.MinWidth = ext ? 320 : 0;
+        ControlColumn.Width = ext
+            ? new GridLength(Math.Clamp(App.Settings.ExtPanelWidth, 320, 560))
+            : new GridLength(0);
+        PanelSplitter.Visibility = ext ? Visibility.Visible : Visibility.Collapsed;
         BtnTabMain.Appearance = ext ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
         BtnTabExt.Appearance = ext ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
     }
@@ -220,13 +175,23 @@ public partial class I2cPage : UserControl
 
     private void BtnDelRow_Click(object sender, RoutedEventArgs e)
     {
-        if (GridReg.SelectedItem is RegRow r) RegTable.Remove(r);
+        if (GridReg.SelectedItem is not RegRow r) return;
+        Dbg.Log($"I2cPage.BtnDelRow_Click: reg={r.Reg}");
+        RegTable.Remove(r);
     }
 
     private void BtnDelInit_Click(object sender, RoutedEventArgs e)
     {
-        if (GridInit.SelectedItem is RegRow r) InitSeq.Remove(r);
+        if (GridInit.SelectedItem is not RegRow r) return;
+        Dbg.Log($"I2cPage.BtnDelInit_Click: reg={r.Reg}");
+        InitSeq.Remove(r);
     }
+
+    private void GridReg_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        BtnDelRow.IsEnabled = GridReg.SelectedItem is RegRow;
+
+    private void GridInit_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
+        BtnDelInit.IsEnabled = GridInit.SelectedItem is RegRow;
 
     /// <summary>行执行：周期ms=0 单次执行（按读写属性）；&gt;0 点击进入周期轮询，再点停止。</summary>
     private void BtnRowExec_Click(object sender, RoutedEventArgs e)
@@ -430,6 +395,10 @@ public partial class I2cPage : UserControl
     private void BtnDelete_Click(object sender, RoutedEventArgs e)
     {
         if (CmbProfile.SelectedItem is not string name) return;
+        if (MessageBox.Show($"删除 Profile“{name}”？", "确认删除",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+        Dbg.Log($"I2cPage.BtnDelete_Click: profile={name}");
         ProfileService.Delete(name);
         RefreshProfiles();
     }
@@ -469,89 +438,109 @@ public partial class I2cPage : UserControl
 
     // ── Target Device 段 ──
 
-    private async void TxtAddr_GotFocus(object sender, RoutedEventArgs e)
+    private async void BtnScan_Click(object sender, RoutedEventArgs e) => await ScanBusNow();
+
+    private void SetOperationBusy(bool busy, string action = "")
     {
-        if (_scanning || _suppressScan) return;
-        await ScanBusNow();
+        _operationBusy = busy;
+        BtnScanBus.Content = busy && action == "scan" ? "扫描中…" : "扫描总线";
+        BtnRead.Content = busy && action == "read" ? "读取中…" : "读取";
+        BtnWrite.Content = busy && action == "write" ? "写入中…" : "写入";
+        UpdateOperationAvailability();
     }
 
-    private async void BtnScan_Click(object sender, RoutedEventArgs e) => await ScanBusNow();
+    private void RefreshOperationAvailability()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(RefreshOperationAvailability);
+            return;
+        }
+
+        UpdateOperationAvailability();
+        if (_operationBusy || TxtDataStatus is null) return;
+        if (!App.Bus.IsOpen)
+        {
+            TxtDataStatus.Text = "请先在左侧工作区连接适配器";
+            TxtDataStatus.ClearValue(TextBlock.ForegroundProperty);
+        }
+        else if (TxtDataStatus.Text == "请先在左侧工作区连接适配器")
+        {
+            TxtDataStatus.Text = "已连接，可以扫描或读写";
+        }
+        Dbg.Log($"I2cPage.RefreshOperationAvailability: connected={App.Bus.IsOpen}");
+    }
+
+    private void UpdateOperationAvailability()
+    {
+        if (BtnScanBus is null || BtnRead is null || BtnWrite is null) return;
+        bool connected = App.Bus.IsOpen && !_operationBusy;
+        bool targetValid = IsTargetValid();
+        BtnScanBus.IsEnabled = connected;
+        BtnRead.IsEnabled = connected && targetValid && IsReadSizeValid();
+        BtnWrite.IsEnabled = connected && targetValid && IsBufferValid();
+        string? disconnectedTip = App.Bus.IsOpen ? null : "请先在左侧工作区连接适配器";
+        BtnScanBus.ToolTip = disconnectedTip ?? "扫描当前通道上的从机地址 (F5)";
+        BtnRead.ToolTip = disconnectedTip ?? "读取数据 (Ctrl+R)";
+        BtnWrite.ToolTip = disconnectedTip ?? "写入数据 (Ctrl+W)";
+    }
 
     private async Task ScanBusNow()
     {
-        if (_scanning) return;
+        if (_scanning || !BtnScanBus.IsEnabled) return;
         _scanning = true;
+        SetOperationBusy(true, "scan");
+        Dbg.Log($"I2cPage.ScanBusNow: start channel={App.Settings.Channel}");
         try
         {
             var sw = Stopwatch.StartNew();
-            ChipPanel.Children.Clear(); // 清掉上一轮的地址 chip
-            TxtScanResult.Text = "扫描中… 0/112";
-            // 流式刷新：进度实时更新，命中的地址立即出 chip，不等服务结束
-            var found = await App.Bus.ScanBusAsync(
-                progress: (done, _) => Dispatcher.Invoke(() =>
-                    TxtScanResult.Text = $"扫描中… {done}/112"),
-                hit: addr => Dispatcher.Invoke(() => ChipPanel.Children.Add(MakeChip(addr))));
-            _lastHits = found;
+            var found = await App.Bus.ScanBusAsync();
             sw.Stop();
             if (found.Count == 0)
             {
                 // 当前通道无命中时自动扫另一通道，避免从机接在别的通道上干等
                 int other = 1 - App.Settings.Channel;
                 var otherFound = await App.Bus.ScanBusAsync(channel: other);
-                TxtScanResult.Text = otherFound.Count == 0
-                    ? $"通道 {App.Settings.Channel} 未发现从机。排查：① 从机地址若按 8 位标注（如 0x92）= 7 位 0x49；② 降回 100 kHz；③ 检查上拉与共地"
-                    : $"通道 {App.Settings.Channel} 无从机；通道 {other} 上发现 {string.Join(" ", otherFound.Select(a => $"0x{a:X2}"))} —— 把 Channel 切到通道 {other} 后重新扫描";
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描", $"通道{other}", 0,
                     sw.Elapsed.TotalMilliseconds, otherFound.ToArray()));
             }
             else
             {
-                TxtScanResult.Text = $"发现 {found.Count} 个从机，点击选用（{sw.Elapsed.TotalMilliseconds:F0} ms）：";
+                if (found.Count == 1)
+                {
+                    int displayAddress = CmbAddrFmt.SelectedIndex == 1 ? found[0] << 1 : found[0];
+                    TxtAddr.Text = $"{displayAddress:X2}";
+                    Dbg.Log($"I2cPage.ScanBusNow: auto selected 0x{found[0]:X2}");
+                }
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描", "—", 0, sw.Elapsed.TotalMilliseconds, found.ToArray()));
             }
         }
         catch (Exception ex)
         {
-            TxtScanResult.Text = ex.Message;
             App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描", "—", -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
         }
-        finally { _scanning = false; }
-    }
-
-    /// <summary>按当前 Address Format 渲染扫描命中的地址 chip。</summary>
-    private void RenderChips()
-    {
-        ChipPanel.Children.Clear();
-        foreach (var addr in _lastHits)
-            ChipPanel.Children.Add(MakeChip(addr));
-    }
-
-    private RadioButton MakeChip(byte addr7)
-    {
-        bool fmt8 = CmbAddrFmt.SelectedIndex == 1;
-        int disp = fmt8 ? addr7 * 2 : addr7;
-        var rb = new RadioButton
+        finally
         {
-            Content = $"0x{disp:X2}",
-            GroupName = "busAddr",
-            Margin = new Thickness(0, 2, 8, 2),
-            Padding = new Thickness(8, 3, 8, 3),
-            // 扫描结果按行业惯例以 7 位为准；提示 8 位等价形式，避免 0x92/0x49 之类混淆
-            ToolTip = $"7 位 0x{addr7:X2} = 8 位 0x{addr7 * 2:X2}(写) / 0x{addr7 * 2 + 1:X2}(读)"
-        };
-        rb.Checked += (_, _) =>
-        {
-            _suppressScan = true; // chip 点击程序化聚焦地址框，不应再次触发扫描
-            TxtAddr.Text = $"{disp:X2}";
-            TxtAddr.Focus();
-            TxtAddr.CaretIndex = TxtAddr.Text.Length;
-            _suppressScan = false;
-        };
-        return rb;
+            _scanning = false;
+            SetOperationBusy(false);
+            Dbg.Log("I2cPage.ScanBusNow: end");
+        }
     }
 
-    private void TxtAddr_TextChanged(object sender, TextChangedEventArgs e) => SaveSettings();
+    private void TxtAddr_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        ValidateTargetInputs();
+        ResetDataHint();
+        SaveSettings();
+    }
+
+    private void TxtSubAddr_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        ValidateTargetInputs();
+        ResetDataHint();
+        SaveSettings();
+    }
 
     private void CmbAddrFmt_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -562,8 +551,41 @@ public partial class I2cPage : UserControl
             byte nv = CmbAddrFmt.SelectedIndex == 1 ? (v <= 0x7F ? (byte)(v << 1) : v) : (byte)(v >> 1);
             TxtAddr.Text = $"{nv:X2}";
         }
-        RenderChips(); // 扫描结果 chip 按新格式重渲染
+        ValidateTargetInputs();
+        ResetDataHint();
         SaveSettings();
+    }
+
+    private bool IsTargetValid()
+    {
+        bool addressValid = Hex.TryParseByte(TxtAddr.Text, out var value) &&
+                            (CmbAddrFmt?.SelectedIndex == 1 || value <= 0x7F);
+        bool registerValid = string.IsNullOrWhiteSpace(TxtSubAddr.Text) ||
+                             Hex.TryParseByte(TxtSubAddr.Text, out _);
+        return addressValid && registerValid;
+    }
+
+    private void ValidateTargetInputs()
+    {
+        if (TxtAddr is null || TxtSubAddr is null) return;
+        bool addressValid = Hex.TryParseByte(TxtAddr.Text, out var value) &&
+                            (CmbAddrFmt?.SelectedIndex == 1 || value <= 0x7F);
+        bool registerValid = string.IsNullOrWhiteSpace(TxtSubAddr.Text) ||
+                             Hex.TryParseByte(TxtSubAddr.Text, out _);
+        if (addressValid) TxtAddr.ClearValue(Control.BorderBrushProperty);
+        else TxtAddr.BorderBrush = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+        if (registerValid) TxtSubAddr.ClearValue(Control.BorderBrushProperty);
+        else TxtSubAddr.BorderBrush = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+        UpdateOperationAvailability();
+    }
+
+    private void ResetDataHint()
+    {
+        if (_loading || _operationBusy || TxtDataStatus is null) return;
+        TxtDataStatus.Text = App.Bus.IsOpen
+            ? "参数已更新，可以读取或写入"
+            : "请先在左侧工作区连接适配器";
+        TxtDataStatus.ClearValue(TextBlock.ForegroundProperty);
     }
 
     /// <summary>用户输入按 Address Format 折算成 7 位地址。8 位输入右移一位。</summary>
@@ -579,15 +601,24 @@ public partial class I2cPage : UserControl
 
     private async void BtnWrite_Click(object sender, RoutedEventArgs e)
     {
+        if (_operationBusy || !BtnWrite.IsEnabled) return;
+        SetOperationBusy(true, "write");
+        Dbg.Log($"I2cPage.BtnWrite_Click: addr={TxtAddr.Text} reg={TxtSubAddr.Text}");
         try
         {
             byte addr = TargetAddr7() ?? throw new ArgumentException("地址为空");
-            byte[] data = Hex.ParseBytes(TxtWriteBuf.Text);
-            if (data.Length == 0) throw new ArgumentException("Write Buffer 为空");
+            byte[] data = Hex.ParseBytes(TxtDataBuffer.Text);
+            if (data.Length == 0) throw new ArgumentException("数据缓冲区为空");
             bool hasSub = !string.IsNullOrWhiteSpace(TxtSubAddr.Text);
             var r = hasSub
                 ? await App.Bus.WriteRegisterAsync(addr, SubAddr(), data)
                 : await App.Bus.RawWriteAsync(addr, data);
+            TxtDataStatus.Text = r.Ok
+                ? $"写入成功 · {data.Length} 字节 · {r.Ms:F1} ms"
+                : $"写入失败 · {GinkgoDriver.ErrorName(r.Ret)}";
+            TxtDataStatus.Foreground = r.Ok
+                ? new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84))
+                : new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
             App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "WRITE", $"0x{addr:X2}", r.Ret, r.Ms, data));
 
             // 写后读取：写入成功后自动读回验证（同长度），结果进数据显示区
@@ -597,22 +628,32 @@ public partial class I2cPage : UserControl
                 var rb = hasSub
                     ? await App.Bus.ReadRegisterAsync(addr, SubAddr(), blen)
                     : await App.Bus.RawReadAsync(addr, blen);
-                TxtReadResult.Text = rb.Ok
-                    ? $"[写后读 {rb.Ms:F1} ms]  {Grouped(rb.Data!)}"
-                    : $"写后读取失败：{GinkgoDriver.ErrorName(rb.Ret)}";
-                TxtReadResult.Foreground = rb.Ok ? new SolidColorBrush(Color.FromRgb(0x9a, 0x86, 0xfd)) : new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+                if (rb.Ok && rb.Data is not null)
+                    TxtDataBuffer.Text = BufferText(rb.Data);
+                TxtDataStatus.Text = rb.Ok
+                    ? $"写入并回读成功 · {blen} 字节 · {rb.Ms:F1} ms"
+                    : $"写后读取失败 · {GinkgoDriver.ErrorName(rb.Ret)}";
+                TxtDataStatus.Foreground = rb.Ok
+                    ? new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84))
+                    : new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "写后读", $"0x{addr:X2}", rb.Ret, rb.Ms, rb.Data));
             }
         }
         catch (Exception ex)
         {
+            TxtDataStatus.Text = ex.Message;
+            TxtDataStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
             App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "WRITE", TxtAddr.Text, -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
         }
+        finally { SetOperationBusy(false); }
     }
 
     private async void BtnRead_Click(object sender, RoutedEventArgs e)
     {
+        if (_operationBusy || !BtnRead.IsEnabled) return;
+        SetOperationBusy(true, "read");
+        Dbg.Log($"I2cPage.BtnRead_Click: addr={TxtAddr.Text} reg={TxtSubAddr.Text} len={TxtReadSize.Text}");
         try
         {
             byte addr = TargetAddr7() ?? throw new ArgumentException("地址为空");
@@ -622,32 +663,121 @@ public partial class I2cPage : UserControl
             var r = hasSub
                 ? await App.Bus.ReadRegisterAsync(addr, SubAddr(), len)
                 : await App.Bus.RawReadAsync(addr, len);
-            TxtReadResult.Text = r.Ok
-                ? $"[{r.Ms:F1} ms]  {Grouped(r.Data!)}"
-                : $"读取失败：{GinkgoDriver.ErrorName(r.Ret)}";
-            TxtReadResult.Foreground = r.Ok ? new SolidColorBrush(Color.FromRgb(0x9a, 0x86, 0xfd)) : new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
-            // 读完更新：读到的数据自动回填写入框，便于改几个字节后写回
-            if (r.Ok && ChkReadUpdate.IsChecked == true && r.Data is not null)
-                TxtWriteBuf.Text = string.Join(" ", Convert.ToHexString(r.Data).Chunk(2).Select(c => new string(c)));
+            if (r.Ok && r.Data is not null)
+                TxtDataBuffer.Text = BufferText(r.Data);
+            TxtDataStatus.Text = r.Ok
+                ? $"读取成功 · {r.Data?.Length ?? 0} 字节 · {r.Ms:F1} ms"
+                : $"读取失败 · {GinkgoDriver.ErrorName(r.Ret)}";
+            TxtDataStatus.Foreground = r.Ok
+                ? new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84))
+                : new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
             App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "READ", $"0x{addr:X2}", r.Ret, r.Ms, r.Data));
         }
         catch (Exception ex)
         {
-            TxtReadResult.Text = ex.Message;
-            TxtReadResult.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+            TxtDataStatus.Text = ex.Message;
+            TxtDataStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
             App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "READ", TxtAddr.Text, -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
         }
+        finally { SetOperationBusy(false); }
     }
+
+    private bool IsBufferValid()
+    {
+        try { return Hex.ParseBytes(TxtDataBuffer.Text).Length > 0; }
+        catch { return false; }
+    }
+
+    private bool IsReadSizeValid() =>
+        int.TryParse(TxtReadSize.Text, out int len) && len is >= 1 and <= 256;
+
+    private void TxtDataBuffer_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (TxtBufferMeta is null) return;
+        try
+        {
+            int count = Hex.ParseBytes(TxtDataBuffer.Text).Length;
+            TxtBufferMeta.Text = $"{count} 字节";
+            TxtDataBuffer.ClearValue(Control.BorderBrushProperty);
+            if (!_operationBusy && BtnWrite is not null) BtnWrite.IsEnabled = count > 0;
+        }
+        catch
+        {
+            TxtBufferMeta.Text = "HEX 格式错误";
+            TxtDataBuffer.BorderBrush = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+            if (!_operationBusy && BtnWrite is not null) BtnWrite.IsEnabled = false;
+        }
+        ResetDataHint();
+        UpdateOperationAvailability();
+    }
+
+    private void TxtReadSize_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        bool valid = IsReadSizeValid();
+        if (valid) TxtReadSize.ClearValue(Control.BorderBrushProperty);
+        else TxtReadSize.BorderBrush = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+        ResetDataHint();
+        UpdateOperationAvailability();
+    }
+
+    private void I2cPage_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (_operationBusy) return;
+        if (e.Key == Key.F5 && BtnScanBus.IsEnabled)
+            BtnScan_Click(BtnScanBus, new RoutedEventArgs());
+        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R && BtnRead.IsEnabled)
+            BtnRead_Click(BtnRead, new RoutedEventArgs());
+        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.W && BtnWrite.IsEnabled)
+            BtnWrite_Click(BtnWrite, new RoutedEventArgs());
+        else
+            return;
+        e.Handled = true;
+    }
+
+    internal static string BufferText(byte[] data) =>
+        string.Join(" ", Convert.ToHexString(data).Chunk(2).Select(c => new string(c)));
 
     internal static string Grouped(byte[] data) =>
         "0x" + string.Join(".", Convert.ToHexString(data).Chunk(2).Select(c => new string(c)));
 
-    /// <summary>双击分隔条：命令面板恢复默认 380px，日志列回到自动占满。</summary>
+    /// <summary>双击分隔条：扩展工具恢复默认宽度。</summary>
     private void Splitter_DoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (sender is System.Windows.Controls.GridSplitter { Parent: Grid grid })
-            grid.ColumnDefinitions[0].Width = new GridLength(344);
+        {
+            grid.ColumnDefinitions[0].Width = new GridLength(480);
+            App.Settings.ExtPanelWidth = 480;
+            App.Settings.Save();
+            Dbg.Log("I2cPage.Splitter_DoubleClick: reset extension width to 480");
+        }
+    }
+
+    private void LogSplitter_DoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not GridSplitter { Parent: Grid grid }) return;
+        grid.RowDefinitions[0].Height = new GridLength(13, GridUnitType.Star);
+        grid.RowDefinitions[2].Height = new GridLength(7, GridUnitType.Star);
+        App.Settings.LogPanelRatio = 0.65;
+        App.Settings.Save();
+        Dbg.Log("I2cPage.LogSplitter_DoubleClick: reset rows to 65/35");
+        e.Handled = true;
+    }
+
+    private void PanelSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        App.Settings.ExtPanelWidth = Math.Clamp(ControlColumn.ActualWidth, 320, 560);
+        App.Settings.Save();
+        Dbg.Log($"I2cPage.PanelSplitter_DragCompleted: width={App.Settings.ExtPanelWidth:F0}");
+    }
+
+    private void LogSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
+    {
+        double total = LogRow.ActualHeight + DataRow.ActualHeight;
+        if (total <= 0) return;
+        App.Settings.LogPanelRatio = Math.Clamp(LogRow.ActualHeight / total, 0.3, 0.8);
+        App.Settings.Save();
+        Dbg.Log($"I2cPage.LogSplitter_DragCompleted: ratio={App.Settings.LogPanelRatio:F2}");
     }
 }
 

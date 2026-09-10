@@ -3,25 +3,32 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="8,6,8,18" MaxWidth="720" HorizontalAlignment="Left">
+        <StackPanel Margin="12,8,12,20" MaxWidth="760" HorizontalAlignment="Left">
 
             <TextBlock Text="设置" Style="{StaticResource PageTitleStyle}" />
             <TextBlock Text="调整外观，并查看本机配置与应用信息" Style="{StaticResource PageSubtitleStyle}" />
 
             <TextBlock Text="外观" Style="{StaticResource SectionTitleStyle}" />
-            <ui:Card Margin="0,0,0,14">
-                <StackPanel Margin="4">
-                    <TextBlock Text="主题" Opacity="0.75" />
-                    <ComboBox x:Name="CmbTheme" MinWidth="160" Margin="0,4,0,0" SelectionChanged="CmbTheme_SelectionChanged">
+            <ui:Card Margin="0,0,0,14" Padding="12,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="180" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="应用主题" FontWeight="SemiBold" />
+                        <TextBlock Text="立即应用到全部页面" FontSize="11" Opacity="0.55" Margin="0,2,0,0" />
+                    </StackPanel>
+                    <ComboBox x:Name="CmbTheme" Grid.Column="1" SelectionChanged="CmbTheme_SelectionChanged">
                         <ComboBoxItem Content="Dark（默认）" />
                         <ComboBoxItem Content="Light" />
                     </ComboBox>
-                </StackPanel>
+                </Grid>
             </ui:Card>
 
             <TextBlock Text="连接参数记忆" Style="{StaticResource SectionTitleStyle}" />
-            <ui:Card Margin="0,0,0,14">
-                <StackPanel Margin="4">
+            <ui:Card Margin="0,0,0,14" Padding="12,10">
+                <StackPanel>
                     <TextBlock Text="通道、速率、上次从机地址会随操作自动保存，重启后恢复。"
                                Opacity="0.85" TextWrapping="Wrap" />
                     <TextBlock x:Name="TxtSettingsPath" Opacity="0.45" Margin="0,8,0,0"
@@ -30,11 +37,11 @@
             </ui:Card>
 
             <TextBlock Text="关于" Style="{StaticResource SectionTitleStyle}" />
-            <ui:Card>
-                <StackPanel Margin="4">
-                    <TextBlock Text="GinkgoHost · 复刻 Binho Mission Control 交互布局" Opacity="0.85" />
+            <ui:Card Padding="12,10">
+                <StackPanel>
+                    <TextBlock Text="GinkgoHost · Ginkgo USB-I²C 调试工作台" Opacity="0.85" />
                     <TextBlock Text="协议引擎：ViewTool Ginkgo_Driver.dll · UI：WPF + WPF-UI (Fluent)"
-                               Opacity="0.55" Margin="0,4,0,0" />
+                               Opacity="0.55" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
             </ui:Card>
 

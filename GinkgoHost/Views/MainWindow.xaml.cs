@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using GinkgoHost.Models;
+using GinkgoHost.Native;
 using Wpf.Ui.Controls;
 
 namespace GinkgoHost.Views;
@@ -24,17 +25,22 @@ public partial class MainWindow : FluentWindow
         App.Log.CollectionChanged += OnLogChanged;
         RefreshStatus();
         ShowPage();
-        Closed += (_, _) => App.Bus.StateChanged -= RefreshStatus;
+        Closed += (_, _) =>
+        {
+            App.Bus.StateChanged -= RefreshStatus;
+            App.Log.CollectionChanged -= OnLogChanged;
+        };
     }
 
     private void Nav_SelectionChanged(object sender, SelectionChangedEventArgs e) => ShowPage();
 
     private bool _navOpen = true;
+    private bool _connectionBusy;
 
     private void BtnNavToggle_Click(object sender, RoutedEventArgs e)
     {
         _navOpen = !_navOpen;
-        NavCol.Width = _navOpen ? new GridLength(216) : new GridLength(0);
+        NavCol.Width = _navOpen ? new GridLength(204) : new GridLength(0);
         Nav.Visibility = _navOpen ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -55,26 +61,92 @@ public partial class MainWindow : FluentWindow
     {
         Dispatcher.Invoke(() =>
         {
-            DotState.Fill = App.Bus.IsOpen ? DotOn : DotOff;
-            string busTxt = App.Bus.ControlMode == GinkgoHost.Native.GinkgoDriver.VII_SCTL_MODE
+            DotWorkspaceState.Fill = App.Bus.IsOpen ? DotOn : DotOff;
+            string busTxt = App.Bus.ControlMode == GinkgoDriver.VII_SCTL_MODE
                 ? "软件 I2C"
                 : $"{App.Bus.ClockHz / 1000} kHz";
-            TxtState.Text = App.Bus.IsOpen
-                ? $"已连接 · 通道 {App.Bus.Channel} · {busTxt}"
-                : "Connect to a Host Adapter";
-            TxtAdapterInfo.Text = App.Bus.AdapterCount > 0
-                ? $"适配器 ×{App.Bus.AdapterCount}"
-                : "未检测到适配器";
+            TxtWorkspaceState.Text = App.Bus.IsOpen ? "已连接" : "未连接";
+            TxtWorkspaceDetail.Text = App.Bus.IsOpen
+                ? $"通道 {App.Bus.Channel} · {busTxt}"
+                : App.Bus.AdapterCount > 0 ? $"检测到 {App.Bus.AdapterCount} 个适配器" : "未检测到适配器";
+            if (!_connectionBusy)
+            {
+                BtnWorkspaceConnect.Content = "连接";
+                BtnWorkspaceConnect.IsEnabled = !App.Bus.IsOpen;
+                BtnWorkspaceDisconnect.IsEnabled = App.Bus.IsOpen;
+            }
         });
+    }
+
+    private void SetConnectionBusy(bool busy)
+    {
+        _connectionBusy = busy;
+        BtnWorkspaceConnect.Content = busy ? "连接中…" : "连接";
+        BtnWorkspaceConnect.IsEnabled = !busy && !App.Bus.IsOpen;
+        BtnWorkspaceDisconnect.IsEnabled = !busy && App.Bus.IsOpen;
+    }
+
+    private async void BtnWorkspaceConnect_Click(object sender, RoutedEventArgs e)
+    {
+        Dbg.Log($"MainWindow.BtnWorkspaceConnect_Click: ch={App.Settings.Channel} clk={App.Settings.ClockHz} mode={App.Settings.ControlMode}");
+        try
+        {
+            SetConnectionBusy(true);
+            var (count, ret) = await App.Bus.ConnectAsync(
+                App.Settings.Channel, App.Settings.ClockHz, (byte)App.Settings.ControlMode);
+            Dbg.Log($"MainWindow.BtnWorkspaceConnect_Click: count={count} ret={ret}");
+            if (count <= 0)
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", ret, 0, null));
+            else if (ret != 0)
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", ret, 0,
+                    System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(ret))));
+        }
+        catch (Exception ex)
+        {
+            Dbg.Log($"MainWindow.BtnWorkspaceConnect_Click: failed={ex.Message}");
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", -1, 0,
+                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+            RefreshStatus();
+        }
+        finally { SetConnectionBusy(false); }
+    }
+
+    private async void BtnWorkspaceDisconnect_Click(object sender, RoutedEventArgs e)
+    {
+        Dbg.Log("MainWindow.BtnWorkspaceDisconnect_Click: start");
+        try
+        {
+            SetConnectionBusy(true);
+            int ret = await App.Bus.CloseAsync();
+            Dbg.Log($"MainWindow.BtnWorkspaceDisconnect_Click: ret={ret}");
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "断开适配器", "—", ret, 0,
+                ret == 0 ? null : System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(ret))));
+        }
+        catch (Exception ex)
+        {
+            Dbg.Log($"MainWindow.BtnWorkspaceDisconnect_Click: failed={ex.Message}");
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "断开适配器", "—", -1, 0,
+                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+            RefreshStatus();
+        }
+        finally { SetConnectionBusy(false); }
     }
 
     private void OnLogChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        if (e.Action == NotifyCollectionChangedAction.Reset)
+        {
+            Dispatcher.Invoke(() => StatusFooter.Visibility = Visibility.Collapsed);
+            return;
+        }
         if (e.Action != NotifyCollectionChangedAction.Add || e.NewItems is not { Count: > 0 }) return;
         var last = (LogEntry)e.NewItems[^1]!;
         Dispatcher.Invoke(() =>
+        {
+            StatusFooter.Visibility = Visibility.Visible;
             TxtLastTx.Text = last.Ret == 0
                 ? $"最近事务：{last.Op} {last.Addr} · {last.Ms:F1} ms"
-                : $"最近事务：{last.Op} {last.Addr} · 失败 ({last.Ret})");
+                : $"最近事务：{last.Op} {last.Addr} · 失败 ({last.Ret})";
+        });
     }
 }

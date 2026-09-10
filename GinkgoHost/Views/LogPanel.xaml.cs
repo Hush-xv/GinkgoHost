@@ -6,12 +6,14 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using GinkgoHost.Models;
+using GinkgoHost.Native;
 
 namespace GinkgoHost.Views;
 
 public partial class LogPanel : UserControl
 {
     private ObservableCollection<LogEntry> _log = null!;
+    private bool _followLatest = true;
 
     public LogPanel()
     {
@@ -28,7 +30,7 @@ public partial class LogPanel : UserControl
     private void OnLogChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         TxtCount.Text = $"{_log.Count} 条";
-        if (e.Action == NotifyCollectionChangedAction.Add && Lst.Items.Count > 0)
+        if (_followLatest && e.Action == NotifyCollectionChangedAction.Add && Lst.Items.Count > 0)
             Lst.ScrollIntoView(Lst.Items[^1]); // 跟随最新记录
     }
 
@@ -36,10 +38,21 @@ public partial class LogPanel : UserControl
     {
         if (Lst.SelectedItem is not LogEntry { Data: { Length: > 0 } } le) return;
         Clipboard.SetText(le.HexGrouped);
-        TxtCount.Text = "已复制到剪贴板";
+        TxtFeedback.Text = "已复制";
     }
 
-    private void BtnClear_Click(object sender, RoutedEventArgs e) => _log.Clear();
+    private void ChkFollow_Changed(object sender, RoutedEventArgs e)
+    {
+        _followLatest = ChkFollow.IsChecked == true;
+        TxtFeedback.Text = _followLatest ? "自动跟随" : "已暂停跟随";
+    }
+
+    private void BtnClear_Click(object sender, RoutedEventArgs e)
+    {
+        Dbg.Log($"LogPanel.BtnClear_Click: clear {_log.Count} entries");
+        _log.Clear();
+        TxtFeedback.Text = "已清空";
+    }
 
     private void BtnExport_Click(object sender, RoutedEventArgs e)
     {
@@ -61,5 +74,7 @@ public partial class LogPanel : UserControl
               .Append(entry.Ms.ToString("F1")).Append(',')
               .AppendLine(entry.Hex);
         File.WriteAllText(dlg.FileName, sb.ToString(), new UTF8Encoding(true)); // BOM 保证 Excel 中文不乱码
+        Dbg.Log($"LogPanel.BtnExport_Click: exported {_log.Count} entries to {dlg.FileName}");
+        TxtFeedback.Text = "导出完成";
     }
 }
