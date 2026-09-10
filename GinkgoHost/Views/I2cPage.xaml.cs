@@ -21,8 +21,6 @@ public partial class I2cPage : UserControl
     private bool _scanning;
     private bool _suppressScan; // chip 点击程序化聚焦地址框时，抑制 GotFocus 的自动扫描
     private List<byte> _lastHits = new();
-    private CancellationTokenSource? _periodRcTs, _periodWcTs;
-    private bool _periodRRunning, _periodWRunning;
     // XAML 加载期 SelectionChanged 就会触发，_loading 初始为 true，RestoreSettings 完成后才放行
     private bool _loading = true;
 
@@ -53,8 +51,6 @@ public partial class I2cPage : UserControl
         TxtAddr.Text = s.LastAddr;
         TxtSubAddr.Text = s.LastSubAddr;
         CmbAddrFmt.SelectedIndex = Math.Clamp(s.AddrFmt, 0, 1);
-        TxtPeriodR.Text = Math.Max(10, s.PeriodReadMs).ToString();
-        TxtPeriodW.Text = Math.Max(10, s.PeriodWriteMs).ToString();
         UpdateSpeedControlsEnabled();
         _loading = false;
     }
@@ -68,8 +64,6 @@ public partial class I2cPage : UserControl
         App.Settings.LastAddr = TxtAddr.Text;
         App.Settings.LastSubAddr = TxtSubAddr.Text;
         App.Settings.AddrFmt = CmbAddrFmt.SelectedIndex;
-        App.Settings.PeriodReadMs = int.TryParse(TxtPeriodR.Text, out var pr) ? Math.Max(10, pr) : 500;
-        App.Settings.PeriodWriteMs = int.TryParse(TxtPeriodW.Text, out var pw) ? Math.Max(10, pw) : 1000;
         App.Settings.Save();
     }
 
@@ -381,109 +375,6 @@ public partial class I2cPage : UserControl
         if (CmbProfile.SelectedItem is not string name) return;
         ProfileService.Delete(name);
         RefreshProfiles();
-    }
-
-    // ── 周期任务 ──
-
-    private int ParseInterval(string s)
-    {
-        int ms = int.Parse(s.Trim(), CultureInfo.InvariantCulture);
-        if (ms < 10) throw new ArgumentException("最小间隔 10 ms");
-        return Math.Min(ms, 60_000);
-    }
-
-    private (byte Addr, byte? Reg) PeriodicTarget()
-    {
-        byte addr = Hex.ParseByte(TxtAddr.Text);
-        byte? reg = string.IsNullOrWhiteSpace(TxtSubAddr.Text) ? null : SubAddr();
-        return (addr, reg);
-    }
-
-    private async void BtnPeriodR_Click(object sender, RoutedEventArgs e)
-    {
-        if (_periodRRunning) { _periodRcTs?.Cancel(); return; }
-        try
-        {
-            int ms = ParseInterval(TxtPeriodR.Text);
-            (byte addr, byte? reg) = PeriodicTarget();
-            int len = int.Parse(TxtReadSize.Text.Trim(), CultureInfo.InvariantCulture);
-            if (len is < 1 or > 256) throw new ArgumentException("Read Size 须在 1–256 之间");
-
-            _periodRcTs = new CancellationTokenSource();
-            _periodRRunning = true;
-            BtnPeriodR.Content = "停止";
-            byte[]? prev = null;
-            var (done, reason) = await App.Bus.PeriodicReadAsync(ms, addr, reg, len, r =>
-            {
-                _ = Dispatcher.InvokeAsync(() =>
-                {
-                    TxtLastR.Text = r.Ok
-                        ? $"[{DateTime.Now:HH:mm:ss}] {I2cPage.Grouped(r.Data!)}"
-                        : $"[{DateTime.Now:HH:mm:ss}] {GinkgoDriver.ErrorName(r.Ret)}";
-                    // 高频档（<500ms）只在数值变化或失败时进日志，防刷屏
-                    bool changed = prev is null || r.Data is null || !r.Data.SequenceEqual(prev);
-                    if (ms >= 500 || !r.Ok || changed)
-                        App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", $"0x{addr:X2}", r.Ret, r.Ms, r.Data));
-                    if (r.Ok) prev = r.Data;
-                });
-            }, _periodRcTs.Token);
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", $"周期读结束（{done} 次）", "—", 0, 0,
-                reason is null ? null : System.Text.Encoding.UTF8.GetBytes(reason)));
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex)
-        {
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "周期读", TxtAddr.Text, -1, 0,
-                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-        }
-        finally
-        {
-            _periodRRunning = false;
-            BtnPeriodR.Content = "开始";
-            BtnPeriodR.Appearance = Wpf.Ui.Controls.ControlAppearance.Primary;
-        }
-    }
-
-    private async void BtnPeriodW_Click(object sender, RoutedEventArgs e)
-    {
-        if (_periodWRunning) { _periodWcTs?.Cancel(); return; }
-        try
-        {
-            int ms = ParseInterval(TxtPeriodW.Text);
-            (byte addr, byte? reg) = PeriodicTarget();
-            byte[] data = Hex.ParseBytes(TxtWriteBuf.Text);
-            if (data.Length == 0) throw new ArgumentException("Write Buffer 为空");
-
-            var owner = Window.GetWindow(this);
-            if (MessageBox.Show(owner,
-                    $"将以 {ms} ms 周期向 0x{addr:X2} 重复写入 {data.Length} 字节。\n对 EEPROM 等器件有磨损风险，确认开始？",
-                    "周期写确认", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
-                return;
-
-            _periodWcTs = new CancellationTokenSource();
-            _periodWRunning = true;
-            BtnPeriodW.Content = "停止";
-            int wcount = 0;
-            var (done, reason) = await App.Bus.PeriodicWriteAsync(ms, addr, reg, data, r =>
-            {
-                Interlocked.Increment(ref wcount);
-                _ = Dispatcher.InvokeAsync(() => TxtCountW.Text = $"已写 {wcount} 次");
-                // 周期写成功不逐条进日志，失败即记，总数由停止时汇总
-            }, _periodWcTs.Token);
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", $"周期写结束（{done} 次）", "—", 0, 0,
-                reason is null ? null : System.Text.Encoding.UTF8.GetBytes(reason)));
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception ex)
-        {
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "周期写", TxtAddr.Text, -1, 0,
-                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-        }
-        finally
-        {
-            _periodWRunning = false;
-            BtnPeriodW.Content = "开始";
-        }
     }
 
     private async void CmbCtrlMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
