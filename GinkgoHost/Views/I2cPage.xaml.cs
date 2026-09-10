@@ -21,6 +21,10 @@ public partial class I2cPage : UserControl
     private bool _scanning;
     private bool _suppressScan; // chip 点击程序化聚焦地址框时，抑制 GotFocus 的自动扫描
     private List<byte> _lastHits = new();
+    private CancellationTokenSource? _extPeriodCts;
+    private bool _extPeriodRunning;
+    private static readonly Brush DotOn = new SolidColorBrush(Color.FromRgb(0x4C, 0xAF, 0x50));
+    private static readonly Brush DotOff = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
     // XAML 加载期 SelectionChanged 就会触发，_loading 初始为 true，RestoreSettings 完成后才放行
     private bool _loading = true;
 
@@ -30,12 +34,65 @@ public partial class I2cPage : UserControl
         LogView.Init(App.Log);
         GridReg.ItemsSource = RegTable;
         GridInit.ItemsSource = InitSeq;
+        App.Bus.StateChanged += RefreshConn;
         Loaded += (_, _) =>
         {
+            RefreshConn();
             RestoreSettings();
             RefreshProfiles();
         };
+        Unloaded += (_, _) => App.Bus.StateChanged -= RefreshConn;
         ShowExtSub("reg");
+    }
+
+    /// <summary>紧凑连接状态刷新（左栏卡片）。</summary>
+    private void RefreshConn()
+    {
+        Dispatcher.Invoke(() =>
+        {
+            bool on = App.Bus.IsOpen;
+            DotConn.Fill = on ? DotOn : DotOff;
+            if (on)
+            {
+                string bus = App.Bus.ControlMode == GinkgoDriver.VII_SCTL_MODE
+                    ? "软件 I2C"
+                    : $"{App.Bus.ClockHz / 1000} kHz";
+                TxtConnMain.Text = "已连接";
+                TxtConnSub.Text = $"通道 {App.Bus.Channel} · {bus}";
+            }
+            else
+            {
+                TxtConnMain.Text = "未连接";
+                TxtConnSub.Text = "点击「连接」";
+            }
+            BtnConn.IsEnabled = !on;
+            BtnDisc.IsEnabled = on;
+        });
+    }
+
+    private async void BtnConn_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var (count, ret) = await App.Bus.ConnectAsync(
+                App.Settings.Channel, App.Settings.ClockHz, (byte)App.Settings.ControlMode);
+            if (count <= 0)
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", ret, 0, null));
+            else if (ret != 0)
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", ret, 0,
+                    System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(ret))));
+        }
+        catch (Exception ex)
+        {
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", -1, 0,
+                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
+        }
+    }
+
+    private async void BtnDisc_Click(object sender, RoutedEventArgs e)
+    {
+        await App.Bus.CloseAsync();
+        App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "断开适配器", "—", 0, 0, null));
     }
 
     private void RestoreSettings()

@@ -22,7 +22,6 @@
             <TextBlock Text="I²C 工作台" Style="{StaticResource PageTitleStyle}" />
             <TextBlock Text="配置总线、扫描设备并执行寄存器读写" Style="{StaticResource PageSubtitleStyle}" />
         </StackPanel>
-        <views:ConnectBar DockPanel.Dock="Top" />
 
         <!-- ═══ 总线设置条 ═══ -->
         <Border DockPanel.Dock="Top" Margin="8,0,8,8" CornerRadius="6" Padding="14,8"
@@ -69,6 +68,25 @@
             <!-- ── 主控面板 ── -->
             <ScrollViewer x:Name="MainScroll" Grid.Column="0" VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="4,0,4,8">
+
+                        <!-- 连接控制（紧凑） -->
+                        <ui:Card Margin="0,0,0,8" Padding="10,8">
+                            <DockPanel LastChildFill="False">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Ellipse x:Name="DotConn" Width="10" Height="10" Fill="#757575" VerticalAlignment="Center" />
+                                    <StackPanel Margin="9,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock x:Name="TxtConnMain" Text="未连接" />
+                                        <TextBlock x:Name="TxtConnSub" Text="点击「连接」" FontSize="11" Opacity="0.55" />
+                                    </StackPanel>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                                    <ui:Button x:Name="BtnConn" Content="连接" Appearance="Primary" MinWidth="64"
+                                               Click="BtnConn_Click" />
+                                    <ui:Button x:Name="BtnDisc" Content="断开" MinWidth="64" Margin="6,0,0,0"
+                                               Click="BtnDisc_Click" IsEnabled="False" />
+                                </StackPanel>
+                            </DockPanel>
+                        </ui:Card>
 
                         <ui:Card Margin="0,0,0,8">
                             <StackPanel Margin="4">
