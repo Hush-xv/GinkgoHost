@@ -589,6 +589,20 @@ public partial class I2cPage : UserControl
                 ? await App.Bus.WriteRegisterAsync(addr, SubAddr(), data)
                 : await App.Bus.RawWriteAsync(addr, data);
             App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "WRITE", $"0x{addr:X2}", r.Ret, r.Ms, data));
+
+            // 写后读取：写入成功后自动读回验证（同长度），结果进数据显示区
+            if (r.Ok && ChkWriteRead.IsChecked == true)
+            {
+                int blen = Math.Min(Math.Max(data.Length, 1), 256);
+                var rb = hasSub
+                    ? await App.Bus.ReadRegisterAsync(addr, SubAddr(), blen)
+                    : await App.Bus.RawReadAsync(addr, blen);
+                TxtReadResult.Text = rb.Ok
+                    ? $"[写后读 {rb.Ms:F1} ms]  {Grouped(rb.Data!)}"
+                    : $"写后读取失败：{GinkgoDriver.ErrorName(rb.Ret)}";
+                TxtReadResult.Foreground = rb.Ok ? new SolidColorBrush(Color.FromRgb(0x9a, 0x86, 0xfd)) : new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "写后读", $"0x{addr:X2}", rb.Ret, rb.Ms, rb.Data));
+            }
         }
         catch (Exception ex)
         {
@@ -612,6 +626,9 @@ public partial class I2cPage : UserControl
                 ? $"[{r.Ms:F1} ms]  {Grouped(r.Data!)}"
                 : $"读取失败：{GinkgoDriver.ErrorName(r.Ret)}";
             TxtReadResult.Foreground = r.Ok ? new SolidColorBrush(Color.FromRgb(0x9a, 0x86, 0xfd)) : new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+            // 读完更新：读到的数据自动回填写入框，便于改几个字节后写回
+            if (r.Ok && ChkReadUpdate.IsChecked == true && r.Data is not null)
+                TxtWriteBuf.Text = string.Join(" ", Convert.ToHexString(r.Data).Chunk(2).Select(c => new string(c)));
             App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "READ", $"0x{addr:X2}", r.Ret, r.Ms, r.Data));
         }
         catch (Exception ex)

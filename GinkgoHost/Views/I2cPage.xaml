@@ -129,27 +129,39 @@
                             <Grid Margin="4">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
-                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
                                 </Grid.RowDefinitions>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition />
-                                    <ColumnDefinition Width="24" />
-                                    <ColumnDefinition />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="16" />
+                                    <ColumnDefinition Width="132" />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="读写操作" Grid.ColumnSpan="3" FontWeight="SemiBold" Margin="0,0,0,7" />
-                                <StackPanel Grid.Row="1">
+
+                                <!-- 左：写入与数据回显 -->
+                                <StackPanel Grid.Column="0">
                                     <TextBlock Text="写入数据" Opacity="0.75" />
-                                    <ui:TextBox x:Name="TxtWriteBuf" Text="DE AD BE EF" Margin="0,4,0,8"
+                                    <ui:TextBox x:Name="TxtWriteBuf" Text="DE AD BE EF" Margin="0,4,0,0"
                                                 FontFamily="Consolas" />
-                                    <ui:Button x:Name="BtnWrite" Content="写入" Appearance="Primary" Click="BtnWrite_Click" />
+                                    <TextBlock Text="读到的数据" Opacity="0.75" Margin="0,10,0,0" />
                                 </StackPanel>
-                                <StackPanel Grid.Row="1" Grid.Column="2">
-                                    <TextBlock Text="读取长度" Opacity="0.75" />
+
+                                <!-- 右：控制列（JI2C 风格） -->
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="读/写长度" Opacity="0.75" />
                                     <ui:TextBox x:Name="TxtReadSize" Text="8" Margin="0,4,0,8" />
-                                    <ui:Button x:Name="BtnRead" Content="读取" Click="BtnRead_Click" />
-                                    <TextBlock x:Name="TxtReadResult" Text=" " Margin="0,8,0,0" FontFamily="Consolas"
-                                               TextWrapping="Wrap" Foreground="#9a86fd" />
+                                    <CheckBox x:Name="ChkReadUpdate" Content="读完更新" Margin="0,2,0,0" />
+                                    <CheckBox x:Name="ChkWriteRead" Content="写后读取" Margin="0,4,0,8" />
+                                    <ui:Button x:Name="BtnRead" Content="读" Click="BtnRead_Click" Margin="0,0,0,6" />
+                                    <ui:Button x:Name="BtnWrite" Content="写" Appearance="Primary" Click="BtnWrite_Click" />
                                 </StackPanel>
+
+                                <!-- 底：数据回显区（大号 hex，全宽） -->
+                                <Border Grid.Row="1" Grid.ColumnSpan="3" Margin="0,8,0,0" CornerRadius="4"
+                                        Background="#141414" Padding="10,8">
+                                    <TextBlock x:Name="TxtReadResult" Text="—— 点「读」查看数据 ——" FontFamily="Consolas"
+                                               FontSize="14" Foreground="#C4B9FE" TextWrapping="Wrap" />
+                                </Border>
                             </Grid>
                         </ui:Card>
 
