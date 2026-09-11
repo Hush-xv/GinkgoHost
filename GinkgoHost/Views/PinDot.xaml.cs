@@ -15,8 +15,14 @@ public partial class PinDot : UserControl
         DependencyProperty.Register(nameof(Gray), typeof(bool), typeof(PinDot),
             new PropertyMetadata(false, (_, e) => ((PinDot)_).Refresh()));
 
+    /// <summary>非信号引脚的子类：Ground 空心描边、Power 实心灰——形状+颜色双编码，不依赖颜色单独区分。</summary>
+    public static readonly DependencyProperty HollowProperty =
+        DependencyProperty.Register(nameof(Hollow), typeof(bool), typeof(PinDot),
+            new PropertyMetadata(false, (_, e) => ((PinDot)_).Refresh()));
+
     public string Signal { get => (string)GetValue(SignalProperty); set => SetValue(SignalProperty, value); }
     public bool Gray { get => (bool)GetValue(GrayProperty); set => SetValue(GrayProperty, value); }
+    public bool Hollow { get => (bool)GetValue(HollowProperty); set => SetValue(HollowProperty, value); }
 
     // 信号类别用低饱和蓝（区别于品牌紫/状态色），明确是静态定义而非实时电平
     private static readonly Brush SignalBrush = new SolidColorBrush(Color.FromRgb(0x7F, 0xA0, 0xC8));
@@ -31,7 +37,17 @@ public partial class PinDot : UserControl
     private void Refresh()
     {
         TxtSignal.Text = Signal;
-        Dot.Fill = Gray ? PowerBrush : SignalBrush;
         TxtSignal.Opacity = Gray ? 0.55 : 1.0;
+        if (Hollow)
+        {
+            Dot.Fill = Brushes.Transparent;
+            Dot.Stroke = PowerBrush;
+            Dot.StrokeThickness = 1.5;
+        }
+        else
+        {
+            Dot.StrokeThickness = 0;
+            Dot.Fill = Gray ? PowerBrush : SignalBrush;
+        }
     }
 }
