@@ -1,6 +1,8 @@
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Windows;
 using GinkgoHost.Models;
+using GinkgoHost.Native;
 using GinkgoHost.Services;
 using Wpf.Ui.Appearance;
 
@@ -12,9 +14,19 @@ public partial class App : Application
     public static I2cService Bus { get; } = new();
     public static ObservableCollection<LogEntry> Log { get; } = new();
     public static SettingsService Settings { get; private set; } = null!;
+    private Mutex? _instanceMutex;
+    private bool _ownsInstanceMutex;
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        _instanceMutex = new Mutex(initiallyOwned: true, "Local\\GinkgoHost_USB_I2C", out _ownsInstanceMutex);
+        if (!_ownsInstanceMutex)
+        {
+            MessageBox.Show("GinkgoHost 已在运行。请切换到现有窗口。", "GinkgoHost",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            Shutdown();
+            return;
+        }
         Settings = SettingsService.Load();
         ApplicationThemeManager.Apply(
             Settings.Theme == "Light" ? ApplicationTheme.Light : ApplicationTheme.Dark);
@@ -23,8 +35,11 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        Dbg.Log("App.OnExit: release I2C session");
         Bus.Dispose();
-        Settings.Save();
+        if (Settings is not null) Settings.Save();
+        if (_ownsInstanceMutex) _instanceMutex?.ReleaseMutex();
+        _instanceMutex?.Dispose();
         base.OnExit(e);
     }
 }

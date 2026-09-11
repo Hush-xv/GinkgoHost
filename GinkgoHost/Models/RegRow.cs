@@ -15,6 +15,8 @@ public sealed class RegRow : INotifyPropertyChanged
     private int _delayMs;
     private string _note = "";
     private string _status = "";
+    private bool _polling;
+    private int _pollCount;
 
     public string Reg { get => _reg; set { _reg = value; OnPropertyChanged(); } }
     public int Len { get => _len; set { _len = value; OnPropertyChanged(); } }
@@ -31,6 +33,14 @@ public sealed class RegRow : INotifyPropertyChanged
     /// <summary>最近一次执行结果：OK / ERR xx / 空。驱动行底色。</summary>
     [JsonIgnore]
     public string Status { get => _status; set { _status = value; OnPropertyChanged(); } }
+
+    /// <summary>周期轮询运行中标记。驱动行高亮；不落盘。</summary>
+    [JsonIgnore]
+    public bool Polling { get => _polling; set { _polling = value; OnPropertyChanged(); } }
+
+    /// <summary>本轮周期轮询已执行次数，显示在执行按钮上。</summary>
+    [JsonIgnore]
+    public int PollCount { get => _pollCount; set { _pollCount = value; OnPropertyChanged(); } }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

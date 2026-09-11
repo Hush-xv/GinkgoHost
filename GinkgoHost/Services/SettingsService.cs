@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using GinkgoHost.Models;
 
 namespace GinkgoHost.Services;
 
@@ -17,6 +18,7 @@ public sealed class SettingsService
     public double LogPanelRatio { get; set; } = 0.65;
     public int LastPage { get; set; } = 1;
     public bool NavOpen { get; set; } = true;
+    public List<I2cTarget> I2cTargets { get; set; } = [];
 
     private static string FilePath()
     {

@@ -96,6 +96,15 @@ public partial class ConsolePage : UserControl
 
     private async void BtnRun_Click(object sender, RoutedEventArgs e) => await RunInputAsync();
 
+    /// <summary>常用命令直接填入并执行，保持与手工输入完全相同的调用链。</summary>
+    private async void BtnQuickCommand_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string command }) return;
+        TxtIn.Text = command;
+        Dbg.Log($"ConsolePage.BtnQuickCommand_Click: command={command}");
+        await RunInputAsync();
+    }
+
     private async Task RunInputAsync()
     {
         if (_executing) return;
@@ -275,6 +284,8 @@ public partial class ConsolePage : UserControl
                 var res = loop.Reg is byte reg
                     ? await App.Bus.ReadRegisterAsync(address, reg, loop.Len)
                     : await App.Bus.RawReadAsync(address, loop.Len);
+                // 停止请求可能在驱动调用期间到达；此时不再输出已取消的这一轮结果。
+                if (cts.IsCancellationRequested) break;
                 AddConsoleTransaction("RX", "控制台周期读", address, res);
                 Print(res.Ok
                     ? $"RX {I2cPage.DisplayAddress(address)} len={loop.Len}  {I2cPage.Grouped(res.Data!)}  [{res.Ms:F1} ms]"
@@ -305,12 +316,17 @@ public partial class ConsolePage : UserControl
             return;
         }
         _readLoopCts.Cancel();
+        Dbg.Log("ConsolePage.StopReadLoop: cancellation requested");
         if (announce) Print("正在停止周期读…", Gray);
     }
 
     /// <summary>控制台输入跟随全局地址格式，底层驱动始终接收 7-bit 地址。</summary>
-    private static byte ConsoleAddr7(byte address) =>
-        App.Settings.AddrFmt == 1 ? (byte)(address >> 1) : address;
+    private static byte ConsoleAddr7(byte address)
+    {
+        if (App.Settings.AddrFmt != 1) return address;
+        if ((address & 1) != 0) throw new ArgumentException("8-bit 地址须为偶数写地址，例如 92");
+        return (byte)(address >> 1);
+    }
 
     private void UpdateCommandHint() => TxtIn.PlaceholderText = $"输入命令，例如：{CommandExample()}";
 

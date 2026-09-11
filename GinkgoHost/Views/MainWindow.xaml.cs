@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -19,6 +20,7 @@ public partial class MainWindow : FluentWindow
     private bool _windowReady;
     private bool _navOpen = true;
     private bool _connectionBusy;
+    private bool _closing;
 
     public MainWindow()
     {
@@ -28,6 +30,7 @@ public partial class MainWindow : FluentWindow
         Nav.SelectedIndex = Math.Clamp(App.Settings.LastPage, 0, 3);
         _windowReady = true;
         App.Bus.StateChanged += RefreshStatus;
+        Closing += MainWindow_Closing;
         RefreshStatus();
         ShowPage();
         Dbg.Log($"MainWindow: restored page={Nav.SelectedIndex} navOpen={_navOpen}");
@@ -35,6 +38,32 @@ public partial class MainWindow : FluentWindow
         {
             App.Bus.StateChanged -= RefreshStatus;
         };
+    }
+
+    /// <summary>正常关闭时串行释放驱动会话，避免总线操作与 CloseDevice 并发。</summary>
+    private async void MainWindow_Closing(object? sender, CancelEventArgs e)
+    {
+        if (_closing) return;
+        _closing = true;
+        if (!App.Bus.IsOpen) return;
+
+        e.Cancel = true;
+        SetConnectionBusy(true);
+        Dbg.Log("MainWindow.Closing: waiting for I2C session close");
+        try
+        {
+            int ret = await App.Bus.CloseAsync();
+            Dbg.Log($"MainWindow.Closing: CloseAsync ret={ret}");
+        }
+        catch (Exception ex)
+        {
+            Dbg.Log($"MainWindow.Closing: CloseAsync failed={ex.Message}");
+        }
+        finally
+        {
+            SetConnectionBusy(false);
+            Close();
+        }
     }
 
     private void Nav_SelectionChanged(object sender, SelectionChangedEventArgs e)

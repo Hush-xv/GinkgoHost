@@ -127,26 +127,34 @@ public sealed class I2cService : IDisposable
                 var found = new List<byte>();
                 int ret = ReinitLocked(GinkgoDriver.VII_SUB_ADDR_NONE, ch);
                 Dbg.Log($"ScanBusAsync: 通道 {ch} 切换无子地址模式 -> {ret}");
+                if (ret != 0) throw new InvalidOperationException($"扫描初始化失败：{GinkgoDriver.ErrorName(ret)} ({ret})");
 
-                const byte first = 0x08, last = 0x77;
-                int total = last - first + 1, probed = 0;
-                for (byte addr = first; addr <= last; addr++, probed++)
+                try
                 {
-                    var buf = new byte[1];
-                    ret = GinkgoDriver.VII_ReadBytes(GinkgoDriver.VII_USBI2C, 0, ch,
-                        (ushort)(addr << 1), 0, buf, 1);
-                    progress?.Invoke(probed + 1, total);
-                    if (ret == 0)
+                    const byte first = 0x08, last = 0x77;
+                    int total = last - first + 1, probed = 0;
+                    for (byte addr = first; addr <= last; addr++, probed++)
                     {
-                        found.Add(addr);
-                        hit?.Invoke(addr);
-                        Dbg.Log($"扫描命中 0x{addr:X2}");
+                        var buf = new byte[1];
+                        ret = GinkgoDriver.VII_ReadBytes(GinkgoDriver.VII_USBI2C, 0, ch,
+                            (ushort)(addr << 1), 0, buf, 1);
+                        progress?.Invoke(probed + 1, total);
+                        if (ret == 0)
+                        {
+                            found.Add(addr);
+                            hit?.Invoke(addr);
+                            Dbg.Log($"扫描命中 0x{addr:X2}");
+                        }
                     }
-                }
 
-                ReinitLocked(GinkgoDriver.VII_SUB_ADDR_1BYTE); // 恢复寄存器读写模式
-                Dbg.Log($"ScanBusAsync 完成，命中 {found.Count} 个地址");
-                return found;
+                    Dbg.Log($"ScanBusAsync 完成，命中 {found.Count} 个地址");
+                    return found;
+                }
+                finally
+                {
+                    int restoreRet = ReinitLocked(GinkgoDriver.VII_SUB_ADDR_1BYTE); // 扫描异常也必须恢复寄存器模式
+                    Dbg.Log($"ScanBusAsync: restore register mode -> {restoreRet}");
+                }
             });
         }
         finally { _bus.Release(); }
@@ -161,7 +169,8 @@ public sealed class I2cService : IDisposable
             return await Task.Run(() =>
             {
                 EnsureOpen();
-                ReinitLocked(GinkgoDriver.VII_SUB_ADDR_1BYTE);
+                int initRet = ReinitLocked(GinkgoDriver.VII_SUB_ADDR_1BYTE);
+                if (initRet != 0) return new OpResult(initRet, null, 0);
                 var sw = Stopwatch.StartNew();
                 int ret = GinkgoDriver.VII_WriteBytes(GinkgoDriver.VII_USBI2C, 0, _channel,
                     (ushort)(addr7 << 1), reg, data, (ushort)data.Length);
@@ -182,7 +191,8 @@ public sealed class I2cService : IDisposable
             return await Task.Run(() =>
             {
                 EnsureOpen();
-                ReinitLocked(GinkgoDriver.VII_SUB_ADDR_1BYTE);
+                int initRet = ReinitLocked(GinkgoDriver.VII_SUB_ADDR_1BYTE);
+                if (initRet != 0) return new OpResult(initRet, null, 0);
                 var buf = new byte[len];
                 var sw = Stopwatch.StartNew();
                 int ret = GinkgoDriver.VII_ReadBytes(GinkgoDriver.VII_USBI2C, 0, _channel,
@@ -204,7 +214,8 @@ public sealed class I2cService : IDisposable
             return await Task.Run(() =>
             {
                 EnsureOpen();
-                ReinitLocked(GinkgoDriver.VII_SUB_ADDR_NONE);
+                int initRet = ReinitLocked(GinkgoDriver.VII_SUB_ADDR_NONE);
+                if (initRet != 0) return new OpResult(initRet, null, 0);
                 var sw = Stopwatch.StartNew();
                 int ret = GinkgoDriver.VII_WriteBytes(GinkgoDriver.VII_USBI2C, 0, _channel,
                     (ushort)(addr7 << 1), 0, data, (ushort)data.Length);
@@ -225,7 +236,8 @@ public sealed class I2cService : IDisposable
             return await Task.Run(() =>
             {
                 EnsureOpen();
-                ReinitLocked(GinkgoDriver.VII_SUB_ADDR_NONE);
+                int initRet = ReinitLocked(GinkgoDriver.VII_SUB_ADDR_NONE);
+                if (initRet != 0) return new OpResult(initRet, null, 0);
                 var buf = new byte[len];
                 var sw = Stopwatch.StartNew();
                 int ret = GinkgoDriver.VII_ReadBytes(GinkgoDriver.VII_USBI2C, 0, _channel,
@@ -247,7 +259,8 @@ public sealed class I2cService : IDisposable
             return await Task.Run(() =>
             {
                 EnsureOpen();
-                ReinitLocked(subAddrWidth);
+                int initRet = ReinitLocked(subAddrWidth);
+                if (initRet != 0) return new OpResult(initRet, null, 0);
                 var buf = new byte[len];
                 var sw = Stopwatch.StartNew();
                 int ret = GinkgoDriver.VII_ReadBytes(GinkgoDriver.VII_USBI2C, 0, _channel,
@@ -269,7 +282,8 @@ public sealed class I2cService : IDisposable
             return await Task.Run(() =>
             {
                 EnsureOpen();
-                ReinitLocked(subAddrWidth);
+                int initRet = ReinitLocked(subAddrWidth);
+                if (initRet != 0) return new OpResult(initRet, null, 0);
                 var sw = Stopwatch.StartNew();
                 int ret = GinkgoDriver.VII_WriteBytes(GinkgoDriver.VII_USBI2C, 0, _channel,
                     (ushort)(addr7 << 1), subAddr, data, (ushort)data.Length);

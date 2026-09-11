@@ -48,6 +48,7 @@ public partial class I2cPage : UserControl
         Loaded += (_, _) =>
         {
             RestoreSettings();
+            LoadTargets();
             RefreshProfiles();
             App.Bus.StateChanged -= OnBusStateChanged;
             App.Bus.StateChanged += OnBusStateChanged;
@@ -154,6 +155,7 @@ public partial class I2cPage : UserControl
 
     public ObservableCollection<RegRow> RegTable { get; } = [];
     public ObservableCollection<RegRow> InitSeq { get; } = [];
+    public ObservableCollection<I2cTarget> Targets { get; } = [];
     /// <summary>正在轮询的行 → 其取消源。键为引用，DataGrid 行对象生命周期内稳定。</summary>
     private readonly Dictionary<RegRow, CancellationTokenSource> _rowLoops = [];
 
@@ -237,10 +239,11 @@ public partial class I2cPage : UserControl
     {
         // XAML 按声明顺序创建控件；TxtSlave 的初始 TextChanged 会早于 CmbAddrFmt。
         bool eightBit = CmbAddrFmt?.SelectedIndex == 1;
-        bool valid = Hex.TryParseByte(TxtSlave.Text, out var address) && (eightBit || address <= 0x7F);
+        bool valid = Hex.TryParseByte(TxtSlave.Text, out var address) &&
+                     (eightBit ? (address & 1) == 0 : address <= 0x7F);
         TxtSlave.ToolTip = valid
             ? eightBit ? "8 位地址（hex），如 0x92" : "7 位地址（hex），如 0x49"
-            : eightBit ? "地址须为 00–FF 的十六进制数" : "地址须为 00–7F 的十六进制数";
+            : eightBit ? "8 位地址须为偶数 hex 值，如 0x92" : "地址须为 00–7F 的十六进制数";
         return valid;
     }
 
@@ -256,6 +259,116 @@ public partial class I2cPage : UserControl
         bool eightBit = CmbAddrFmt.SelectedIndex == 1;
         TxtExtSlaveLabel.Text = eightBit ? "从机地址 · 8-bit" : "从机地址 · 7-bit";
         ValidateExtSlave();
+    }
+
+    // ── 已保存目标 ──
+
+    private void LoadTargets()
+    {
+        Targets.Clear();
+        foreach (var target in (App.Settings.I2cTargets ?? []).Where(t => t.Address7 <= 0x7F))
+            Targets.Add(new I2cTarget { Address7 = target.Address7, Name = target.Name });
+        RefreshTargetDisplays();
+        RefreshTargetEmptyHint();
+
+        byte? current = TryTargetAddr7();
+        CmbTarget.SelectedItem = current is byte address
+            ? Targets.FirstOrDefault(t => t.Address7 == address)
+            : null;
+        RefreshTargetEmptyHint();
+        Dbg.Log($"I2cPage.LoadTargets: count={Targets.Count}");
+    }
+
+    private void RefreshTargetDisplays()
+    {
+        foreach (var target in Targets)
+        {
+            string address = DisplayAddress(target.Address7);
+            target.Display = string.IsNullOrWhiteSpace(target.Name) ? address : $"{address} · {target.Name}";
+        }
+    }
+
+    private void RefreshTargetEmptyHint()
+    {
+        // XAML 加载期下拉框的 SelectionChanged 可能早于占位文本创建。
+        if (TxtTargetEmpty is null || CmbTarget is null) return;
+        bool noSavedTarget = Targets.Count == 0;
+        TxtTargetEmpty.Text = noSavedTarget ? "暂无保存目标" : "选择已保存目标";
+        TxtTargetEmpty.Visibility = noSavedTarget || CmbTarget.SelectedItem is null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        Dbg.Log($"I2cPage.RefreshTargetEmptyHint: count={Targets.Count} selected={CmbTarget.SelectedItem is not null}");
+    }
+
+    private void PersistTargets()
+    {
+        App.Settings.I2cTargets = Targets
+            .Select(t => new I2cTarget { Address7 = t.Address7, Name = t.Name })
+            .ToList();
+        App.Settings.Save();
+    }
+
+    private I2cTarget UpsertTarget(byte address7)
+    {
+        var target = Targets.FirstOrDefault(t => t.Address7 == address7);
+        if (target is null)
+        {
+            target = new I2cTarget { Address7 = address7, Name = $"设备 {DisplayAddress(address7)}" };
+            Targets.Add(target);
+            Dbg.Log($"I2cPage.UpsertTarget: added addr={DisplayAddress(address7)}");
+        }
+        RefreshTargetDisplays();
+        RefreshTargetEmptyHint();
+        PersistTargets();
+        return target;
+    }
+
+    private void AddScannedTargets(IReadOnlyCollection<byte> addresses)
+    {
+        bool changed = false;
+        foreach (byte address in addresses)
+        {
+            if (Targets.Any(t => t.Address7 == address)) continue;
+            Targets.Add(new I2cTarget { Address7 = address, Name = $"设备 {DisplayAddress(address)}" });
+            changed = true;
+        }
+        if (!changed) return;
+        RefreshTargetDisplays();
+        RefreshTargetEmptyHint();
+        PersistTargets();
+        Dbg.Log($"I2cPage.AddScannedTargets: added count={addresses.Count}");
+    }
+
+    private void SelectTarget(I2cTarget target)
+    {
+        int address = CmbAddrFmt.SelectedIndex == 1 ? target.Address7 << 1 : target.Address7;
+        TxtAddr.Text = $"{address:X2}";
+        TxtSlave.Text = TxtAddr.Text;
+        CmbTarget.SelectedItem = target;
+        SaveSettings();
+        ResetDataHint();
+        Dbg.Log($"I2cPage.SelectTarget: addr={DisplayAddress(target.Address7)} name={target.Name}");
+    }
+
+    private void CmbTarget_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        RefreshTargetEmptyHint();
+        if (_loading || CmbTarget.SelectedItem is not I2cTarget target) return;
+        SelectTarget(target);
+    }
+
+    private void BtnSaveTarget_Click(object sender, RoutedEventArgs e)
+    {
+        if (TryTargetAddr7() is not byte address)
+        {
+            TxtDataStatus.Text = "地址格式错误，无法保存目标";
+            TxtDataStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+            return;
+        }
+        var target = UpsertTarget(address);
+        CmbTarget.SelectedItem = target;
+        TxtDataStatus.Text = $"已保存目标 {DisplayAddress(address)}";
+        TxtDataStatus.Foreground = new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84));
     }
 
     private uint ExtParseReg(string s)
@@ -314,10 +427,28 @@ public partial class I2cPage : UserControl
     private void GridInit_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
         BtnDelInit.IsEnabled = !_extOperationBusy && GridInit.SelectedItem is RegRow;
 
+    /// <summary>按钮执行前提交 DataGrid 当前编辑，避免刚切换的读写方向仍沿用旧值。</summary>
+    private static void CommitGridEdit(DataGrid grid)
+    {
+        grid.CommitEdit(DataGridEditingUnit.Cell, true);
+        grid.CommitEdit(DataGridEditingUnit.Row, true);
+        Dbg.Log($"I2cPage.CommitGridEdit: grid={grid.Name}");
+    }
+
+    private static string RegisterOperation(string action, RegRow row) => $"{action} · Reg {row.Reg}";
+
+    /// <summary>进入行内编辑后直接覆盖旧值，避免先删除默认地址或长度。</summary>
+    private void Grid_PreparingCellForEdit(object sender, DataGridPreparingCellForEditEventArgs e)
+    {
+        if (e.EditingElement is not TextBox editor) return;
+        Dispatcher.BeginInvoke(editor.SelectAll, System.Windows.Threading.DispatcherPriority.Input);
+    }
+
     /// <summary>行执行：周期ms=0 单次执行（按读写属性）；&gt;0 点击进入周期轮询，再点停止。</summary>
     private async void BtnRowExec_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button btn || btn.DataContext is not RegRow row) return;
+        CommitGridEdit(GridReg);
 
         // 已在轮询 → 本次点击 = 停止
         if (_rowLoops.TryGetValue(row, out var running))
@@ -325,6 +456,7 @@ public partial class I2cPage : UserControl
             running.Cancel();
             _rowLoops.Remove(row);
             btn.Content = "执行";
+            row.Polling = false;
             return;
         }
 
@@ -333,13 +465,16 @@ public partial class I2cPage : UserControl
         {
             var cts = new CancellationTokenSource();
             _rowLoops[row] = cts;
-            btn.Content = "停止";
+            row.Polling = true;
+            row.PollCount = 0;
+            btn.Content = "停止·0";
             SetExtOperationBusy(true, "周期轮询");
-            try { await RunRowLoopAsync(row, cts.Token); }
+            try { await RunRowLoopAsync(row, btn, cts.Token); }
             finally
             {
                 _rowLoops.Remove(row);
                 btn.Content = "执行";
+                row.Polling = false;
                 SetExtOperationBusy(false);
             }
         }
@@ -357,19 +492,19 @@ public partial class I2cPage : UserControl
             byte[] data = ExtWriteData(row);
             var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
             row.Status = r.Ok ? "OK" : "ERR";
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "寄存器写", DisplayAddress(ExtSlave7()), r.Ret, r.Ms, data));
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", RegisterOperation("寄存器写", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, data));
         }
         else
         {
             var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), ExtLength(row), ExtRegWidth());
             row.Status = r.Ok ? "OK" : "ERR";
             if (r.Ok && r.Data is not null) row.Value = BufferText(r.Data);
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "寄存器读", DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", RegisterOperation("寄存器读", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
         }
     }
 
     /// <summary>行周期轮询循环：每次读都回填数据并记录事务，等待间隔支持取消。</summary>
-    private async Task RunRowLoopAsync(RegRow row, CancellationToken ct)
+    private async Task RunRowLoopAsync(RegRow row, System.Windows.Controls.Button execBtn, CancellationToken ct)
     {
         Dbg.Log($"I2cPage.RunRowLoopAsync: start reg={row.Reg} periodMs={row.PeriodMs} dir={row.Dir}");
         while (!ct.IsCancellationRequested)
@@ -382,7 +517,7 @@ public partial class I2cPage : UserControl
                     var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
                     row.Status = r.Ok ? "OK" : "ERR";
                     if (!r.Ok)
-                        App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "周期写", DisplayAddress(ExtSlave7()), r.Ret, r.Ms, data));
+                        App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", RegisterOperation("周期写", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, data));
                 }
                 else
                 {
@@ -392,7 +527,7 @@ public partial class I2cPage : UserControl
                     {
                         // 成功事务必须回填，即使值与上一轮相同，也让表格反映本次读到的结果。
                         row.Value = r.Data is not null ? BufferText(r.Data) : "—";
-                        App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
+                        App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", RegisterOperation("周期读", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
                     }
                 }
             }
@@ -402,16 +537,19 @@ public partial class I2cPage : UserControl
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", "—", -1, 0,
                     System.Text.Encoding.UTF8.GetBytes(ex.Message)));
             }
+            row.PollCount++;
+            execBtn.Content = $"停止·{row.PollCount}";
             try { await Task.Delay(Math.Max(10, row.PeriodMs), ct); }
             catch (OperationCanceledException) { break; }
         }
-        Dbg.Log($"I2cPage.RunRowLoopAsync: stopped reg={row.Reg}");
+        Dbg.Log($"I2cPage.RunRowLoopAsync: stopped reg={row.Reg} polls={row.PollCount}");
     }
 
     /// <summary>初始化行执行：按行读写属性分派（R 读校验 / W 写入）。</summary>
     private async void BtnInitRowExec_Click(object sender, RoutedEventArgs e)
     {
         if (sender is not Button { DataContext: RegRow row }) return;
+        CommitGridEdit(GridInit);
         if (_extOperationBusy) return;
         await RunExtendedOperationAsync("初始化行", () => ExecInitRowAsync(row));
     }
@@ -425,14 +563,14 @@ public partial class I2cPage : UserControl
                 var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), ExtLength(row), ExtRegWidth());
                 row.Status = r.Ok ? "OK" : "ERR";
                 if (r.Ok && r.Data is not null) row.Value = BufferText(r.Data);
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "初始化读", DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", RegisterOperation("初始化读", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
             }
             else
             {
                 byte[] data = ExtWriteData(row);
                 var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
                 row.Status = r.Ok ? "OK" : "ERR";
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "初始化写", DisplayAddress(ExtSlave7()), r.Ret, r.Ms, data));
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", RegisterOperation("初始化写", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, data));
             }
         }
         catch (Exception ex)
@@ -446,6 +584,7 @@ public partial class I2cPage : UserControl
     private async void BtnReadAll_Click(object sender, RoutedEventArgs e)
     {
         if (_extOperationBusy) return;
+        CommitGridEdit(GridReg);
         await RunExtendedOperationAsync("一键读取", ReadAllAsync);
     }
 
@@ -459,7 +598,7 @@ public partial class I2cPage : UserControl
                 var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), ExtLength(row), ExtRegWidth());
                 row.Status = r.Ok ? "OK" : "ERR";
                 if (r.Ok && r.Data is not null) row.Value = BufferText(r.Data);
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "读全部", DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", RegisterOperation("寄存器读", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
             }
             catch (Exception ex)
             {
@@ -473,6 +612,12 @@ public partial class I2cPage : UserControl
     private async void BtnRunInit_Click(object sender, RoutedEventArgs e)
     {
         if (_extOperationBusy) return;
+        if (MessageBox.Show("初始化序列可能包含写入操作。确认继续执行？", "确认初始化",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        {
+            TxtExtStatus.Text = "已取消初始化";
+            return;
+        }
         await RunExtendedOperationAsync("一键初始化", RunInitSequenceAsync);
     }
 
@@ -669,6 +814,21 @@ public partial class I2cPage : UserControl
         UpdateOperationAvailability();
     }
 
+    private Stopwatch? _scanSw;
+
+    /// <summary>扫描回调来自后台线程；只更新界面，不写高频调试日志。</summary>
+    private void UpdateScanProgress(int done, int total)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(() => UpdateScanProgress(done, total));
+            return;
+        }
+        if (!_scanning || TxtDataStatus is null) return;
+        double secs = _scanSw?.Elapsed.TotalSeconds ?? 0;
+        TxtDataStatus.Text = $"扫描中 {done} / {total} · {secs:F1}s";
+    }
+
     private void RefreshOperationAvailability()
     {
         if (!Dispatcher.CheckAccess())
@@ -720,17 +880,25 @@ public partial class I2cPage : UserControl
         Dbg.Log($"I2cPage.ScanBusNow: start channel={App.Settings.Channel}");
         try
         {
-            var sw = Stopwatch.StartNew();
-            var found = await App.Bus.ScanBusAsync();
+            var sw = _scanSw = Stopwatch.StartNew();
+            var found = await App.Bus.ScanBusAsync(progress: UpdateScanProgress);
             int channel = App.Settings.Channel;
             bool canScanAlternate = CurrentCtrlMode() == GinkgoDriver.VII_HCTL_MODE && channel is 0 or 1;
             if (found.Count == 0 && canScanAlternate)
             {
                 int other = 1 - channel;
-                var otherFound = await App.Bus.ScanBusAsync(channel: other);
+                TxtDataStatus.Text = $"当前通道未命中，正在扫描备用通道 {other}";
+                var otherFound = await App.Bus.ScanBusAsync(progress: UpdateScanProgress, channel: other);
                 sw.Stop();
                 if (otherFound.Count == 1)
                 {
+                    // 备用通道命中后必须同步当前通道，否则后续读写仍会走旧通道。
+                    _loading = true;
+                    CmbChannel.SelectedIndex = other;
+                    _loading = false;
+                    App.Settings.Channel = other;
+                    int configRet = await App.Bus.ApplyConfigAsync(other, CurrentHz(), CurrentCtrlMode());
+                    if (configRet != 0) throw new InvalidOperationException($"切换到通道 {other} 失败：{GinkgoDriver.ErrorName(configRet)}");
                     int displayAddress = CmbAddrFmt.SelectedIndex == 1 ? otherFound[0] << 1 : otherFound[0];
                     TxtAddr.Text = $"{displayAddress:X2}";
                     SaveSettings();
@@ -738,6 +906,7 @@ public partial class I2cPage : UserControl
                 }
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描",
                     $"通道{channel}→{other}", 0, sw.Elapsed.TotalMilliseconds, otherFound.Select(ToDisplayAddressByte).ToArray()));
+                AddScannedTargets(otherFound);
                 Dbg.Log($"I2cPage.ScanBusNow: alternate channel={other} hits={otherFound.Count} totalMs={sw.Elapsed.TotalMilliseconds:F1}");
                 TxtDataStatus.Text = otherFound.Count == 0
                     ? "扫描完成，未发现从机"
@@ -757,6 +926,7 @@ public partial class I2cPage : UserControl
                 }
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描",
                     $"通道{channel}", 0, sw.Elapsed.TotalMilliseconds, found.Select(ToDisplayAddressByte).ToArray()));
+                AddScannedTargets(found);
             }
             if (found.Count != 0)
                 TxtDataStatus.Text = found.Count == 1
@@ -818,6 +988,7 @@ public partial class I2cPage : UserControl
             TxtSlave.Text = $"{nv:X2}";
         }
         UpdateExtAddressFormatHint();
+        RefreshTargetDisplays();
         ValidateTargetInputs();
         ResetDataHint();
         SaveSettings();
@@ -826,7 +997,7 @@ public partial class I2cPage : UserControl
     private bool IsTargetValid()
     {
         bool addressValid = Hex.TryParseByte(TxtAddr.Text, out var value) &&
-                            (CmbAddrFmt?.SelectedIndex == 1 || value <= 0x7F);
+                            (CmbAddrFmt?.SelectedIndex == 1 ? (value & 1) == 0 : value <= 0x7F);
         bool registerValid = string.IsNullOrWhiteSpace(TxtSubAddr.Text) ||
                              Hex.TryParseByte(TxtSubAddr.Text, out _);
         return addressValid && registerValid;
@@ -836,7 +1007,7 @@ public partial class I2cPage : UserControl
     {
         if (TxtAddr is null || TxtSubAddr is null) return;
         bool addressValid = Hex.TryParseByte(TxtAddr.Text, out var value) &&
-                            (CmbAddrFmt?.SelectedIndex == 1 || value <= 0x7F);
+                            (CmbAddrFmt?.SelectedIndex == 1 ? (value & 1) == 0 : value <= 0x7F);
         bool registerValid = string.IsNullOrWhiteSpace(TxtSubAddr.Text) ||
                              Hex.TryParseByte(TxtSubAddr.Text, out _);
         if (addressValid) TxtAddr.ClearValue(Control.BorderBrushProperty);
@@ -906,6 +1077,8 @@ public partial class I2cPage : UserControl
         return CmbAddrFmt.SelectedIndex == 1 ? (byte)(raw >> 1) : raw;
     }
 
+    private byte? TryTargetAddr7() => IsTargetValid() ? TargetAddr7() : null;
+
     private byte SubAddr() => Hex.ParseByte(string.IsNullOrWhiteSpace(TxtSubAddr.Text) ? "00" : TxtSubAddr.Text);
 
     // ── Transactions 段 ──
@@ -913,6 +1086,12 @@ public partial class I2cPage : UserControl
     private async void BtnWrite_Click(object sender, RoutedEventArgs e)
     {
         if (_operationBusy || !BtnWrite.IsEnabled) return;
+        if (MessageBox.Show($"确认向目标 {TxtAddr.Text} 写入当前 HEX 数据？", "确认写入",
+            MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+        {
+            TxtDataStatus.Text = "已取消写入";
+            return;
+        }
         SetOperationBusy(true, "write");
         Dbg.Log($"I2cPage.BtnWrite_Click: addr={TxtAddr.Text} reg={TxtSubAddr.Text}");
         try
