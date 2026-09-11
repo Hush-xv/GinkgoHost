@@ -163,6 +163,20 @@ public partial class I2cPage : UserControl
     private void BtnTabMain_Click(object sender, RoutedEventArgs e) => ShowExtTab(false);
     private void BtnTabExt_Click(object sender, RoutedEventArgs e) => ShowExtTab(true);
 
+    private static void SetModeTab(System.Windows.Controls.Button tab, bool active)
+    {
+        tab.Background = active
+            ? new SolidColorBrush(Color.FromArgb(0x2E, 0xE8, 0xB4, 0x77))
+            : Brushes.Transparent;
+        tab.Foreground = active
+            ? new SolidColorBrush(Color.FromRgb(0xF0, 0xC1, 0x7B))
+            : new SolidColorBrush(Color.FromRgb(0xA0, 0xA0, 0xA0));
+        tab.BorderBrush = active
+            ? new SolidColorBrush(Color.FromRgb(0xE8, 0xB4, 0x77))
+            : new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
+        tab.BorderThickness = new Thickness(0, 0, 0, 2);
+    }
+
     private void BtnSubReg_Click(object sender, RoutedEventArgs e) => ShowExtSub("reg");
     private void BtnSubInit_Click(object sender, RoutedEventArgs e) => ShowExtSub("init");
 
@@ -183,8 +197,11 @@ public partial class I2cPage : UserControl
             ? new GridLength(Math.Clamp(App.Settings.ExtPanelWidth, 320, ControlColumn.MaxWidth))
             : new GridLength(0);
         PanelSplitter.Visibility = ext ? Visibility.Visible : Visibility.Collapsed;
-        BtnTabMain.Appearance = ext ? Wpf.Ui.Controls.ControlAppearance.Secondary : Wpf.Ui.Controls.ControlAppearance.Primary;
-        BtnTabExt.Appearance = ext ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
+        BtnTabMain.Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary;
+        BtnTabExt.Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary;
+        // 模式 Tab 用「深色底 + 橙字 + 橙色底边」表达选中，不与写入等执行按钮争抢 Primary
+        SetModeTab(BtnTabMain, active: !ext);
+        SetModeTab(BtnTabExt, active: ext);
     }
 
     /// <summary>宽屏优先增加有效工作区，普通窗口保留用户保存的分栏比例。</summary>
@@ -859,6 +876,10 @@ public partial class I2cPage : UserControl
         BtnScanBus.IsEnabled = connected;
         BtnRead.IsEnabled = connected && targetValid && IsReadSizeValid();
         BtnWrite.IsEnabled = connected && targetValid && IsBufferValid();
+        // 写入只在待发数据就绪时提亮为 Primary：写操作需要谨慎，默认不引导用户点击
+        BtnWrite.Appearance = BtnWrite.IsEnabled
+            ? Wpf.Ui.Controls.ControlAppearance.Primary
+            : Wpf.Ui.Controls.ControlAppearance.Secondary;
         // 忙碌时保留启用外观，避免 Wpf.Ui 的禁用/启用动画造成视觉抖动；
         // 点击和快捷键仍由 IsHitTestVisible 与 _operationBusy 双重拦截。
         BtnScanBus.IsHitTestVisible = !_operationBusy;

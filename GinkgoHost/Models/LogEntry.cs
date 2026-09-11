@@ -10,10 +10,10 @@ public sealed record LogEntry(DateTime Ts, string Dir, string Op, string Addr, i
     public bool Ok => Ret == 0;
     public string RetText => Ret == 0 ? "OK" : $"ERR {Ret}";
     public string Hex => Data is { Length: > 0 } ? Convert.ToHexString(Data) : string.Empty;
-    // Mission Control 事务格式：0xFF.DE.AD 分组
+    // 工程惯例：FF FF FF 空格分隔；进制由列名与输入框标注，不在每条记录加 0x 前缀
     public string HexGrouped => Data is not { Length: > 0 }
         ? "—"
-        : "0x" + string.Join(".", Convert.ToHexString(Data).Chunk(2).Select(c => new string(c)));
+        : string.Join(" ", Convert.ToHexString(Data).Chunk(2).Select(c => new string(c)));
 }
 
 public static class LogCollectionExtensions

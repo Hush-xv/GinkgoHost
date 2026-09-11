@@ -132,20 +132,20 @@ public partial class LogPanel : UserControl
     private static readonly Brush CountErrBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0x9B, 0x9B));
     private static readonly Brush CountErrZeroBrush = new SolidColorBrush(Color.FromRgb(0x8C, 0x8C, 0x8C));
 
-    /// <summary>头部统计：总数（含筛选态）+ 成功/失败带色计数，一眼看出事务健康度。</summary>
+    /// <summary>头部统计：条数 + 成功/失败带色计数。失败为 0 时保持灰色，只有出现失败才转红。</summary>
     private void UpdateCount()
     {
         int total = _log.Count, ok = _log.Count(e => e.Ok), err = total - ok;
         int shown = _view.Cast<LogEntry>().Count();
         TxtCount.Inlines.Clear();
-        TxtCount.Inlines.Add(new Run(shown == total ? $"共 {total} 条" : $"{shown} / {total} 条"));
-        TxtCount.Inlines.Add(new Run($" · 成功 {ok}") { Foreground = CountOkBrush });
-        TxtCount.Inlines.Add(new Run($" · 失败 {err}") { Foreground = err > 0 ? CountErrBrush : CountErrZeroBrush });
+        TxtCount.Inlines.Add(new Run(shown == total ? $"{total} 条" : $"{shown} / {total} 条"));
+        TxtCount.Inlines.Add(new Run($"   成功 {ok}") { Foreground = CountOkBrush });
+        TxtCount.Inlines.Add(new Run($"   失败 {err}") { Foreground = err > 0 ? CountErrBrush : CountErrZeroBrush });
     }
 
     private void UpdateFilterButtons()
     {
-        // 弱化为 chip：选中=淡紫描边胶囊，未选中=透明；与一级模式按钮（实心 Primary）拉开层级
+        // 弱化为 chip：选中=中性灰高亮（不占用协议语义色），未选中=透明；与一级模式按钮拉开层级
         SetFilterPill(BtnFilterAll, _filter == "all");
         SetFilterPill(BtnFilterRead, _filter == "read");
         SetFilterPill(BtnFilterWrite, _filter == "write");
@@ -157,13 +157,13 @@ public partial class LogPanel : UserControl
     {
         pill.Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary;
         pill.Background = active
-            ? new SolidColorBrush(Color.FromArgb(0x38, 0x9A, 0x86, 0xFD))
+            ? new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF))
             : Brushes.Transparent;
         pill.BorderBrush = active
-            ? new SolidColorBrush(Color.FromArgb(0x66, 0x9A, 0x86, 0xFD))
+            ? new SolidColorBrush(Color.FromArgb(0x60, 0xFF, 0xFF, 0xFF))
             : new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
         pill.Foreground = active
-            ? new SolidColorBrush(Color.FromRgb(0xD9, 0xD2, 0xFF))
+            ? new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF))
             : new SolidColorBrush(Color.FromRgb(0xA0, 0xA0, 0xA0));
     }
 

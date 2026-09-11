@@ -198,7 +198,7 @@ public partial class MainWindow : FluentWindow
                 : $"{App.Bus.ClockHz / 1000} kHz";
             TxtWorkspaceState.Text = App.Bus.IsOpen ? "已连接" : "未连接";
             TxtWorkspaceDetail.Text = App.Bus.IsOpen
-                ? $"通道 {App.Bus.Channel} · {busTxt}"
+                ? $"Ginkgo USB-I2C · CH{App.Bus.Channel} · {busTxt}"
                 : App.Bus.AdapterCount > 0 ? $"检测到 {App.Bus.AdapterCount} 个适配器" : "未检测到适配器";
             if (!_connectionBusy)
             {
