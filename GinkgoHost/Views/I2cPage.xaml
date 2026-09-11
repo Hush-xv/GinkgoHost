@@ -127,7 +127,7 @@
                         <TextBlock Text="总线上下文" FontSize="10" Opacity="0.5" Margin="0,1,0,0" />
                     </StackPanel>
                     <ComboBox x:Name="CmbCtrlMode" MinWidth="120" Margin="0,0,10,0" SelectionChanged="CmbCtrlMode_SelectionChanged"
-                              ToolTip="总线模式">
+                              ToolTip="Ginkgo 工作模式：硬件 I²C 用片上外设，软件 I²C 由 GPIO 模拟（速率较低）">
                         <ComboBoxItem Content="硬件 I²C" Tag="1" />
                         <ComboBoxItem Content="软件 I²C (GPIO)" Tag="2" />
                     </ComboBox>
@@ -427,7 +427,7 @@
                                         <Border Width="1" Height="22" Background="#3D3D3D" Margin="0,0,12,0" />
                                         <ui:Button x:Name="BtnRead" Content="读取" Click="BtnRead_Click" IsEnabled="False" Width="68" Margin="0,0,6,0"
                                                    ToolTip="读取数据 (Ctrl+R)" />
-                                        <ui:Button x:Name="BtnWrite" Content="写入" Appearance="Primary" IsEnabled="False" Click="BtnWrite_Click" Width="68"
+                                        <ui:Button x:Name="BtnWrite" Content="写入" IsEnabled="False" Click="BtnWrite_Click" Width="68"
                                                    ToolTip="写入数据 (Ctrl+W)" />
                                     </StackPanel>
                                 </Border>

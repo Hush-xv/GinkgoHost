@@ -197,8 +197,9 @@ public partial class MainWindow : FluentWindow
                 ? "软件 I2C"
                 : $"{App.Bus.ClockHz / 1000} kHz";
             TxtWorkspaceState.Text = App.Bus.IsOpen ? "已连接" : "未连接";
+            // 紧凑设备标识：短名 · 通道 · 速率。多 Adapter 时短名来自 Adapter 能力描述，避免长名裁切
             TxtWorkspaceDetail.Text = App.Bus.IsOpen
-                ? $"CH{App.Bus.Channel} · {busTxt}"   // 设备名已由窗口标题表达，状态卡只留通道与速率
+                ? $"Ginkgo · CH{App.Bus.Channel} · {busTxt}"
                 : App.Bus.AdapterCount > 0 ? $"检测到 {App.Bus.AdapterCount} 个适配器" : "未检测到适配器";
             if (!_connectionBusy)
             {
@@ -227,10 +228,11 @@ public partial class MainWindow : FluentWindow
                 App.Settings.Channel, App.Settings.ClockHz, (byte)App.Settings.ControlMode);
             Dbg.Log($"MainWindow.BtnWorkspaceConnect_Click: count={count} ret={ret}");
             int logRet = count <= 0 ? (count == 0 ? -15 : count) : ret;
-            // SYS 事件不占用事务字段：地址列恒 —，通道/速率详情放数据列（DataDisplay 按 UTF-8 显示）
+            // SYS 事件不占用事务字段：地址列恒 —，设备/通道/速率详情放数据列（DataDisplay 按 UTF-8 显示），
+            // 连接时记录一次硬件上下文，导出日志脱离状态卡也能知道事务属于哪个 Adapter
             App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", logRet, 0,
                 logRet == 0
-                    ? System.Text.Encoding.UTF8.GetBytes($"CH{App.Settings.Channel} · {App.Settings.ClockHz / 1000} kHz")
+                    ? System.Text.Encoding.UTF8.GetBytes($"Ginkgo · CH{App.Settings.Channel} · {App.Settings.ClockHz / 1000} kHz")
                     : System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(logRet))));
         }
         catch (Exception ex)

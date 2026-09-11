@@ -148,7 +148,6 @@ public partial class LogPanel : UserControl
         _ => true
     };
 
-    private static readonly Brush CountOkBrush = new SolidColorBrush(Color.FromRgb(0x91, 0xD5, 0xA0));
     private static readonly Brush CountErrBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0x9B, 0x9B));
     private static readonly Brush CountErrZeroBrush = new SolidColorBrush(Color.FromRgb(0x8C, 0x8C, 0x8C));
     private int _total;
@@ -160,7 +159,8 @@ public partial class LogPanel : UserControl
         int shown = _filter == "all" ? _total : _view.Cast<LogEntry>().Count();
         TxtCount.Inlines.Clear();
         TxtCount.Inlines.Add(new Run(shown == _total ? $"{_total} 条" : $"{shown} / {_total} 条"));
-        TxtCount.Inlines.Add(new Run($"   成功 {_okCount}") { Foreground = CountOkBrush });
+        // 正常计数保持辅助文字；仅异常用颜色吸引注意力。
+        TxtCount.Inlines.Add(new Run($"   成功 {_okCount}"));
         TxtCount.Inlines.Add(new Run($"   失败 {_total - _okCount}") { Foreground = _total - _okCount > 0 ? CountErrBrush : CountErrZeroBrush });
     }
 
@@ -180,9 +180,11 @@ public partial class LogPanel : UserControl
         pill.Background = active
             ? new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF))
             : Brushes.Transparent;
+        // 未选中项无独立完整边框，避免 chip「框套框」；选中用亮 surface + 白字
+        pill.BorderThickness = new Thickness(active ? 1 : 0);
         pill.BorderBrush = active
             ? new SolidColorBrush(Color.FromArgb(0x60, 0xFF, 0xFF, 0xFF))
-            : new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
+            : Brushes.Transparent;
         pill.Foreground = active
             ? new SolidColorBrush(Color.FromRgb(0xFF, 0xFF, 0xFF))
             : new SolidColorBrush(Color.FromRgb(0xA0, 0xA0, 0xA0));

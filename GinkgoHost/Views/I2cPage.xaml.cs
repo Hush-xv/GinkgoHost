@@ -32,7 +32,6 @@ public partial class I2cPage : UserControl
     private bool _operationBusy;
     private bool _extOperationBusy;
     private bool _wideLayout;
-    private bool _settingResultBuffer;
     // XAML 加载期 SelectionChanged 就会触发，_loading 初始为 true，RestoreSettings 完成后才放行
     private bool _loading = true;
 
@@ -171,7 +170,7 @@ public partial class I2cPage : UserControl
             : Brushes.Transparent;
         tab.Foreground = active
             ? new SolidColorBrush(Color.FromRgb(0xF0, 0xC1, 0x7B))
-            : new SolidColorBrush(Color.FromRgb(0xA0, 0xA0, 0xA0));
+            : new SolidColorBrush(Color.FromRgb(0xC9, 0xC9, 0xC9)); // Normal 比 Disabled 亮一档，可点 ≠ 不可用
         tab.BorderBrush = active
             ? new SolidColorBrush(Color.FromRgb(0xE8, 0xB4, 0x77))
             : new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
@@ -372,14 +371,12 @@ public partial class I2cPage : UserControl
     {
         if (TryTargetAddr7() is not byte address)
         {
-            TxtDataStatus.Text = "地址格式错误，无法保存目标";
-            TxtDataStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+            SetLastTransactionStatus("地址格式错误，无法保存目标", "StatusErrorBrush");
             return;
         }
         var target = UpsertTarget(address);
         CmbTarget.SelectedItem = target;
-        TxtDataStatus.Text = $"已保存目标 {DisplayAddress(address)}";
-        TxtDataStatus.Foreground = new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84));
+        SetLastTransactionStatus($"已保存目标 {DisplayAddress(address)}", "StatusSuccessBrush");
     }
 
     private uint ExtParseReg(string s)
@@ -877,10 +874,8 @@ public partial class I2cPage : UserControl
         BtnScanBus.IsEnabled = connected;
         BtnRead.IsEnabled = connected && targetValid && IsReadSizeValid();
         BtnWrite.IsEnabled = connected && targetValid && IsBufferValid();
-        // 写入只在待发数据就绪时提亮为 Primary：写操作需要谨慎，默认不引导用户点击
-        BtnWrite.Appearance = BtnWrite.IsEnabled
-            ? Wpf.Ui.Controls.ControlAppearance.Primary
-            : Wpf.Ui.Controls.ControlAppearance.Secondary;
+        // 读写是同级协议动作；风险由写入确认表达，不把协议类型固定映射为 Primary。
+        BtnWrite.Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary;
         // 忙碌时保留启用外观，避免 Wpf.Ui 的禁用/启用动画造成视觉抖动；
         // 点击和快捷键仍由 IsHitTestVisible 与 _operationBusy 双重拦截。
         BtnScanBus.IsHitTestVisible = !_operationBusy;
@@ -960,8 +955,7 @@ public partial class I2cPage : UserControl
         {
             App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描", "—", -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-            TxtDataStatus.Text = "扫描失败，详情见事务日志";
-            TxtDataStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+            SetLastTransactionStatus("扫描失败，详情见事务日志", "StatusErrorBrush");
         }
         finally
         {
@@ -1048,14 +1042,28 @@ public partial class I2cPage : UserControl
         string? inputError = GetInputError();
         if (inputError is not null)
         {
-            TxtDataStatus.Text = inputError;
-            TxtDataStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+            SetLastTransactionStatus(inputError, "StatusErrorBrush");
             return;
         }
-        TxtDataStatus.Text = App.Bus.IsOpen
+        SetLastTransactionStatus(App.Bus.IsOpen
             ? "参数已更新，可以读取或写入"
-            : "请先在左侧工作区连接适配器";
-        TxtDataStatus.ClearValue(TextBlock.ForegroundProperty);
+            : "请先在左侧工作区连接适配器");
+    }
+
+    /// <summary>最近一次事务状态独立于缓冲区内容，避免读写后出现陈旧的缓冲区语义。</summary>
+    private void SetLastTransactionStatus(string text, string? brushResource = null)
+    {
+        TxtDataStatus.Text = text;
+        if (brushResource is null) TxtDataStatus.ClearValue(TextBlock.ForegroundProperty);
+        else TxtDataStatus.SetResourceReference(TextBlock.ForegroundProperty, brushResource);
+        Dbg.Log($"I2cPage.SetLastTransactionStatus: text={text} brush={brushResource ?? "default"}");
+    }
+
+    /// <summary>缓冲区只描述当前内容格式和字节数，不承担“上次读/写”的事务状态。</summary>
+    private void UpdateBufferMeta()
+    {
+        int count = Hex.ParseBytes(TxtDataBuffer.Text).Length;
+        TxtBufferMeta.Text = $"{count} 字节 · HEX";
     }
 
     private string? GetInputError()
@@ -1125,12 +1133,11 @@ public partial class I2cPage : UserControl
             var r = hasSub
                 ? await App.Bus.WriteRegisterAsync(addr, SubAddr(), data)
                 : await App.Bus.RawWriteAsync(addr, data);
-            TxtDataStatus.Text = r.Ok
+            SetLastTransactionStatus(r.Ok
                 ? $"写入成功 · {r.Ms:F1} ms"
-                : $"写入失败 · {GinkgoDriver.ErrorName(r.Ret)}";
-            TxtDataStatus.Foreground = r.Ok
-                ? new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84))
-                : new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+                : $"写入失败 · {GinkgoDriver.ErrorName(r.Ret)}",
+                r.Ok ? "StatusSuccessBrush" : "StatusErrorBrush");
+            UpdateBufferMeta();
             App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "WRITE", DisplayAddress(addr), r.Ret, r.Ms, data));
 
             // 写后读取：写入成功后自动读回验证（同长度），结果进数据显示区
@@ -1141,20 +1148,17 @@ public partial class I2cPage : UserControl
                     ? await App.Bus.ReadRegisterAsync(addr, SubAddr(), blen)
                     : await App.Bus.RawReadAsync(addr, blen);
                 if (rb.Ok && rb.Data is not null)
-                    ShowBuffer(rb.Data, "写后读结果");
-                TxtDataStatus.Text = rb.Ok
+                    ShowBuffer(rb.Data);
+                SetLastTransactionStatus(rb.Ok
                     ? $"写入并回读成功 · {rb.Ms:F1} ms"
-                    : $"写后读取失败 · {GinkgoDriver.ErrorName(rb.Ret)}";
-                TxtDataStatus.Foreground = rb.Ok
-                    ? new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84))
-                    : new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+                    : $"写后读取失败 · {GinkgoDriver.ErrorName(rb.Ret)}",
+                    rb.Ok ? "StatusSuccessBrush" : "StatusErrorBrush");
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "写后读", DisplayAddress(addr), rb.Ret, rb.Ms, rb.Data));
             }
         }
         catch (Exception ex)
         {
-            TxtDataStatus.Text = ex.Message;
-            TxtDataStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+            SetLastTransactionStatus(ex.Message, "StatusErrorBrush");
             App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "WRITE", TxtAddr.Text, -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
         }
@@ -1176,19 +1180,16 @@ public partial class I2cPage : UserControl
                 ? await App.Bus.ReadRegisterAsync(addr, SubAddr(), len)
                 : await App.Bus.RawReadAsync(addr, len);
             if (r.Ok && r.Data is not null)
-                ShowBuffer(r.Data, "读取结果");
-            TxtDataStatus.Text = r.Ok
+                ShowBuffer(r.Data);
+            SetLastTransactionStatus(r.Ok
                 ? $"读取成功 · {r.Ms:F1} ms"
-                : $"读取失败 · {GinkgoDriver.ErrorName(r.Ret)}";
-            TxtDataStatus.Foreground = r.Ok
-                ? new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84))
-                : new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+                : $"读取失败 · {GinkgoDriver.ErrorName(r.Ret)}",
+                r.Ok ? "StatusSuccessBrush" : "StatusErrorBrush");
             App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "READ", DisplayAddress(addr), r.Ret, r.Ms, r.Data));
         }
         catch (Exception ex)
         {
-            TxtDataStatus.Text = ex.Message;
-            TxtDataStatus.Foreground = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+            SetLastTransactionStatus(ex.Message, "StatusErrorBrush");
             App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "READ", TxtAddr.Text, -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
         }
@@ -1210,7 +1211,7 @@ public partial class I2cPage : UserControl
         try
         {
             int count = Hex.ParseBytes(TxtDataBuffer.Text).Length;
-            TxtBufferMeta.Text = _settingResultBuffer ? $"{count} 字节 · 读取结果" : $"{count} 字节 · 待写数据";
+            TxtBufferMeta.Text = $"{count} 字节 · HEX";
             TxtDataBuffer.ClearValue(Control.BorderBrushProperty);
             if (!_operationBusy && BtnWrite is not null) BtnWrite.IsEnabled = count > 0;
         }
@@ -1224,12 +1225,10 @@ public partial class I2cPage : UserControl
         UpdateOperationAvailability();
     }
 
-    private void ShowBuffer(byte[] data, string purpose)
+    private void ShowBuffer(byte[] data)
     {
-        _settingResultBuffer = true;
         TxtDataBuffer.Text = BufferText(data);
-        TxtBufferMeta.Text = $"{data.Length} 字节 · {purpose}";
-        _settingResultBuffer = false;
+        UpdateBufferMeta();
     }
 
     private void TxtReadSize_TextChanged(object sender, TextChangedEventArgs e)
