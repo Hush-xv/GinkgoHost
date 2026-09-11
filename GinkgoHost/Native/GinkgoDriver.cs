@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 
 namespace GinkgoHost.Native;
@@ -86,10 +87,53 @@ public static class GinkgoDriver
     };
 }
 
-/// <summary>调试日志。DEBUG 构建输出到 DebugView/IDE，Release 零开销。</summary>
+/// <summary>
+/// 运行时文件日志：%APPDATA%\GinkgoHost\logs\GinkgoHost_yyyyMMdd.log。
+/// 按天滚动，保留 7 天；每行即写即刷，崩溃不丢末尾；IO 异常一律吞掉，日志永不影响主流程。
+/// </summary>
 public static class Dbg
 {
-    [Conditional("DEBUG")]
-    public static void Log(string msg) =>
-        Debug.WriteLine($"[GinkgoHost {DateTime.Now:HH:mm:ss.fff}] {msg}");
+    static readonly object _lock = new();
+    static string _cleanedDate = "";
+
+    public static string LogDir { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "GinkgoHost", "logs");
+
+    public static void Log(string msg)
+    {
+        try
+        {
+            var now = DateTime.Now;
+            string date = now.ToString("yyyyMMdd");
+            lock (_lock)
+            {
+                Directory.CreateDirectory(LogDir);
+                if (_cleanedDate != date)
+                {
+                    _cleanedDate = date;
+                    foreach (string f in Directory.GetFiles(LogDir, "GinkgoHost_*.log"))
+                        if (File.GetLastWriteTime(f) < now.AddDays(-7))
+                            File.Delete(f);
+                }
+                File.AppendAllText(Path.Combine(LogDir, $"GinkgoHost_{date}.log"),
+                    $"[{now:HH:mm:ss.fff}] {msg}\r\n");
+            }
+        }
+        catch { /* 日志失败不影响主流程 */ }
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    static extern IntPtr ShellExecuteW(IntPtr hwnd, string verb, string file, string args, string dir, int showCmd);
+
+    /// <summary>在资源管理器中打开日志目录（ShellExecute 交给系统解析，无命令行拼接）。</summary>
+    public static void OpenLogFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(LogDir);
+            ShellExecuteW(IntPtr.Zero, "open", LogDir, null, null, 1 /* SW_SHOWNORMAL */);
+        }
+        catch { /* 打开失败不影响主流程 */ }
+    }
 }

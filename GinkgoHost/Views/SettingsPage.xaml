@@ -36,6 +36,24 @@
                 </StackPanel>
             </ui:Card>
 
+            <TextBlock Text="调试日志" Style="{StaticResource SectionTitleStyle}" />
+            <ui:Card Margin="0,0,0,14" Padding="12,10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="运行日志按天写入本地，保留 7 天，用于排查连接与驱动问题。"
+                                   Opacity="0.85" TextWrapping="Wrap" />
+                        <TextBlock x:Name="TxtLogPath" Opacity="0.45" Margin="0,8,0,0"
+                                   FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <ui:Button x:Name="BtnOpenLogDir" Grid.Column="1" Content="打开日志文件夹"
+                               VerticalAlignment="Center" Margin="12,0,0,0" Click="BtnOpenLogDir_Click" />
+                </Grid>
+            </ui:Card>
+
             <TextBlock Text="关于" Style="{StaticResource SectionTitleStyle}" />
             <ui:Card Padding="12,10">
                 <StackPanel>

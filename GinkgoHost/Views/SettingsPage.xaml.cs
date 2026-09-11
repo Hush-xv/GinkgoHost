@@ -1,5 +1,7 @@
 using System.IO;
+using System.Windows;
 using System.Windows.Controls;
+using GinkgoHost.Native;
 using Wpf.Ui.Appearance;
 
 namespace GinkgoHost.Views;
@@ -18,6 +20,7 @@ public partial class SettingsPage : UserControl
             TxtSettingsPath.Text = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "GinkgoHost", "settings.json");
+            TxtLogPath.Text = Dbg.LogDir;
             _loading = false;
         };
     }
@@ -29,5 +32,11 @@ public partial class SettingsPage : UserControl
         App.Settings.Theme = theme;
         App.Settings.Save();
         ApplicationThemeManager.Apply(theme == "Light" ? ApplicationTheme.Light : ApplicationTheme.Dark);
+    }
+
+    private void BtnOpenLogDir_Click(object sender, RoutedEventArgs e)
+    {
+        Dbg.OpenLogFolder();
+        Dbg.Log("SettingsPage.BtnOpenLogDir_Click: open log folder");
     }
 }

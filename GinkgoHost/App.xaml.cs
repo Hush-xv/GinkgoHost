@@ -19,6 +19,7 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        HookExceptionLogging();
         _instanceMutex = new Mutex(initiallyOwned: true, "Local\\GinkgoHost_USB_I2C", out _ownsInstanceMutex);
         if (!_ownsInstanceMutex)
         {
@@ -31,6 +32,26 @@ public partial class App : Application
         ApplicationThemeManager.Apply(
             Settings.Theme == "Light" ? ApplicationTheme.Light : ApplicationTheme.Dark);
         base.OnStartup(e);
+        Dbg.Log($"App start v{typeof(App).Assembly.GetName().Version} · {Environment.OSVersion} · log {Dbg.LogDir}");
+    }
+
+    /// <summary>三类未处理异常全部落日志：UI 异常弹窗后继续运行，致命/任务异常只留痕。</summary>
+    void HookExceptionLogging()
+    {
+        DispatcherUnhandledException += (_, e) =>
+        {
+            Dbg.Log($"ERROR UI 未处理异常: {e.Exception}");
+            MessageBox.Show($"发生未处理异常，详情见日志文件夹中的最新 .log：\n{e.Exception.Message}",
+                "GinkgoHost", MessageBoxButton.OK, MessageBoxImage.Error);
+            e.Handled = true;
+        };
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            Dbg.Log($"ERROR 致命异常 (terminating={e.IsTerminating}): {e.ExceptionObject}");
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Dbg.Log($"ERROR 未观察任务异常: {e.Exception}");
+            e.SetObserved();
+        };
     }
 
     protected override void OnExit(ExitEventArgs e)
