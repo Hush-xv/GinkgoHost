@@ -115,7 +115,7 @@
                 <Border DockPanel.Dock="Right" CornerRadius="6"
                         Background="{DynamicResource ControlFillColorDefaultBrush}" Padding="3" Margin="14,0,0,0">
                     <UniformGrid Rows="1">
-                        <ui:Button x:Name="BtnTabMain" Content="基础操作" Appearance="Primary" MinWidth="82"
+                        <ui:Button x:Name="BtnTabMain" Content="基础操作" MinWidth="82"
                                    Click="BtnTabMain_Click" CornerRadius="4,0,0,4" />
                         <ui:Button x:Name="BtnTabExt" Content="寄存器工具" MinWidth="82"
                                    Click="BtnTabExt_Click" CornerRadius="0,4,4,0" />

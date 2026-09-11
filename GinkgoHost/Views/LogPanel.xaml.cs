@@ -92,7 +92,7 @@ public partial class LogPanel : UserControl
         }
         TxtFeedback.Text = entry.Data is { Length: > 0 } ? "已选中 · 双击复制数据" : "已选中";
         TxtSelectedSummary.Text = $"{entry.Time} · {entry.Op} · {entry.Addr} · {entry.RetText} · {entry.Ms:F1} ms";
-        TxtSelectedData.Text = entry.HexGrouped;
+        TxtSelectedData.Text = entry.DataDisplay;
         SelectedRecordPanel.Visibility = Visibility.Visible;
     }
 

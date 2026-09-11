@@ -61,6 +61,7 @@ public partial class I2cPage : UserControl
             App.Bus.StateChanged -= OnBusStateChanged;
             CancelExtendedWork();
         };
+        ShowExtTab(false); // 初始化模式 Tab 选中样式（XAML 不再硬编码 Primary）
         ShowExtSub("reg");
     }
 
@@ -926,7 +927,7 @@ public partial class I2cPage : UserControl
                     Dbg.Log($"I2cPage.ScanBusNow: auto selected alternate channel={other} addr=0x{otherFound[0]:X2}");
                 }
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描",
-                    $"通道{channel}→{other}", 0, sw.Elapsed.TotalMilliseconds, otherFound.Select(ToDisplayAddressByte).ToArray()));
+                    "—", 0, sw.Elapsed.TotalMilliseconds, otherFound.Select(ToDisplayAddressByte).ToArray()));
                 AddScannedTargets(otherFound);
                 Dbg.Log($"I2cPage.ScanBusNow: alternate channel={other} hits={otherFound.Count} totalMs={sw.Elapsed.TotalMilliseconds:F1}");
                 TxtDataStatus.Text = otherFound.Count == 0
@@ -946,7 +947,7 @@ public partial class I2cPage : UserControl
                     Dbg.Log($"I2cPage.ScanBusNow: auto selected 0x{found[0]:X2}");
                 }
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描",
-                    $"通道{channel}", 0, sw.Elapsed.TotalMilliseconds, found.Select(ToDisplayAddressByte).ToArray()));
+                    "—", 0, sw.Elapsed.TotalMilliseconds, found.Select(ToDisplayAddressByte).ToArray()));
                 AddScannedTargets(found);
             }
             if (found.Count != 0)
@@ -1125,7 +1126,7 @@ public partial class I2cPage : UserControl
                 ? await App.Bus.WriteRegisterAsync(addr, SubAddr(), data)
                 : await App.Bus.RawWriteAsync(addr, data);
             TxtDataStatus.Text = r.Ok
-                ? $"写入成功 · {data.Length} 字节 · {r.Ms:F1} ms"
+                ? $"写入成功 · {r.Ms:F1} ms"
                 : $"写入失败 · {GinkgoDriver.ErrorName(r.Ret)}";
             TxtDataStatus.Foreground = r.Ok
                 ? new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84))
@@ -1142,7 +1143,7 @@ public partial class I2cPage : UserControl
                 if (rb.Ok && rb.Data is not null)
                     ShowBuffer(rb.Data, "写后读结果");
                 TxtDataStatus.Text = rb.Ok
-                    ? $"写入并回读成功 · {blen} 字节 · {rb.Ms:F1} ms"
+                    ? $"写入并回读成功 · {rb.Ms:F1} ms"
                     : $"写后读取失败 · {GinkgoDriver.ErrorName(rb.Ret)}";
                 TxtDataStatus.Foreground = rb.Ok
                     ? new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84))
@@ -1177,7 +1178,7 @@ public partial class I2cPage : UserControl
             if (r.Ok && r.Data is not null)
                 ShowBuffer(r.Data, "读取结果");
             TxtDataStatus.Text = r.Ok
-                ? $"读取成功 · {r.Data?.Length ?? 0} 字节 · {r.Ms:F1} ms"
+                ? $"读取成功 · {r.Ms:F1} ms"
                 : $"读取失败 · {GinkgoDriver.ErrorName(r.Ret)}";
             TxtDataStatus.Foreground = r.Ok
                 ? new SolidColorBrush(Color.FromRgb(0x81, 0xc7, 0x84))

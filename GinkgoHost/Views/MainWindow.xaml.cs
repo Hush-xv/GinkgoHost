@@ -227,9 +227,11 @@ public partial class MainWindow : FluentWindow
                 App.Settings.Channel, App.Settings.ClockHz, (byte)App.Settings.ControlMode);
             Dbg.Log($"MainWindow.BtnWorkspaceConnect_Click: count={count} ret={ret}");
             int logRet = count <= 0 ? (count == 0 ? -15 : count) : ret;
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器",
-                $"通道{App.Settings.Channel}", logRet, 0,
-                logRet == 0 ? null : System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(logRet))));
+            // SYS 事件不占用事务字段：地址列恒 —，通道/速率详情放数据列（DataDisplay 按 UTF-8 显示）
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", logRet, 0,
+                logRet == 0
+                    ? System.Text.Encoding.UTF8.GetBytes($"CH{App.Settings.Channel} · {App.Settings.ClockHz / 1000} kHz")
+                    : System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(logRet))));
         }
         catch (Exception ex)
         {

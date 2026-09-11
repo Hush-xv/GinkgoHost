@@ -14,6 +14,10 @@ public sealed record LogEntry(DateTime Ts, string Dir, string Op, string Addr, i
     public string HexGrouped => Data is not { Length: > 0 }
         ? "—"
         : string.Join(" ", Convert.ToHexString(Data).Chunk(2).Select(c => new string(c)));
+    // SYS 事件的 Data 携带 UTF-8 人类可读详情（如 CH1 · 400 kHz），事务数据显示文本而非 hex
+    public string DataDisplay => Dir == "SYS" && Data is { Length: > 0 }
+        ? System.Text.Encoding.UTF8.GetString(Data)
+        : HexGrouped;
 }
 
 public static class LogCollectionExtensions

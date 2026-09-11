@@ -112,7 +112,7 @@
                     <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="84" />
-                                    <ColumnDefinition Width="230" />
+                                    <ColumnDefinition Width="120" />
                                     <ColumnDefinition Width="72" />
                                     <ColumnDefinition Width="60" />
                                     <ColumnDefinition Width="64" />
@@ -144,7 +144,7 @@
                             <Grid Margin="8,4">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="84" />
-                                    <ColumnDefinition Width="230" />
+                                    <ColumnDefinition Width="120" />
                                     <ColumnDefinition Width="72" />
                                     <ColumnDefinition Width="60" />
                                     <ColumnDefinition Width="64" />
@@ -159,9 +159,9 @@
                                     <TextBlock Text="{Binding RetText}" Style="{StaticResource ResultText}" />
                                 </Border>
                                 <TextBlock Grid.Column="4" Text="{Binding Ms, StringFormat={}{0:F1} ms}" Style="{StaticResource MsText}" />
-                                <TextBlock Grid.Column="5" Text="{Binding HexGrouped}" FontFamily="Consolas" FontSize="13"
+                                <TextBlock Grid.Column="5" Text="{Binding DataDisplay}" FontFamily="Consolas" FontSize="13"
                                            Foreground="#D8DEE6" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                                           ToolTipService.ToolTip="{Binding HexGrouped}" />
+                                           ToolTipService.ToolTip="{Binding DataDisplay}" />
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
