@@ -126,7 +126,8 @@ public partial class I2cPage : UserControl
     private void UpdateSpeedControlsEnabled()
     {
         bool sw = CurrentCtrlMode() == GinkgoDriver.VII_SCTL_MODE;
-        CmbSpeed.IsEnabled = !sw && TglNonStd.IsChecked != true;
+        // 预设档始终可选：选中预设即自动退出自定义模式，避免开关开启时下拉被禁用无处可改
+        CmbSpeed.IsEnabled = !sw;
         TxtCustomHz.IsEnabled = !sw && TglNonStd.IsChecked == true;
         BtnApplyHz.IsEnabled = !sw && TglNonStd.IsChecked == true;
     }
@@ -771,6 +772,14 @@ public partial class I2cPage : UserControl
     private async void CmbSpeed_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
+        // 选中预设档 = 退出自定义模式；_loading 包住关开关动作，统一由本 handler 保存+应用一次
+        if (TglNonStd.IsChecked == true)
+        {
+            _loading = true;
+            TglNonStd.IsChecked = false;
+            _loading = false;
+            UpdateSpeedControlsEnabled();
+        }
         SaveSettings();
         await App.Bus.ApplyConfigAsync(App.Settings.Channel, CurrentHz(), CurrentCtrlMode());
     }
@@ -782,7 +791,14 @@ public partial class I2cPage : UserControl
         await App.Bus.ApplyConfigAsync(App.Settings.Channel, CurrentHz(), CurrentCtrlMode());
     }
 
-    private void TglNonStd_Changed(object sender, RoutedEventArgs e) => UpdateSpeedControlsEnabled();
+    // 开关切换必须立即持久化并下发：否则设置里残留非标频率，切页回来 RestoreSettings 又把开关打开
+    private async void TglNonStd_Changed(object sender, RoutedEventArgs e)
+    {
+        UpdateSpeedControlsEnabled();
+        if (_loading) return;
+        SaveSettings();
+        await App.Bus.ApplyConfigAsync(App.Settings.Channel, CurrentHz(), CurrentCtrlMode());
+    }
 
     private async void BtnApplyHz_Click(object sender, RoutedEventArgs e)
     {
