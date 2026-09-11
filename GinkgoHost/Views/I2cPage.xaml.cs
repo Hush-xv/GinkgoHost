@@ -126,8 +126,8 @@ public partial class I2cPage : UserControl
     private void UpdateSpeedControlsEnabled()
     {
         bool sw = CurrentCtrlMode() == GinkgoDriver.VII_SCTL_MODE;
-        // 预设档始终可选：选中预设即自动退出自定义模式，避免开关开启时下拉被禁用无处可改
-        CmbSpeed.IsEnabled = !sw;
+        // 互斥：自定义开关占用速率配置时禁用预设下拉，关掉开关才可改
+        CmbSpeed.IsEnabled = !sw && TglNonStd.IsChecked != true;
         TxtCustomHz.IsEnabled = !sw && TglNonStd.IsChecked == true;
         BtnApplyHz.IsEnabled = !sw && TglNonStd.IsChecked == true;
     }
@@ -772,14 +772,6 @@ public partial class I2cPage : UserControl
     private async void CmbSpeed_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
-        // 选中预设档 = 退出自定义模式；_loading 包住关开关动作，统一由本 handler 保存+应用一次
-        if (TglNonStd.IsChecked == true)
-        {
-            _loading = true;
-            TglNonStd.IsChecked = false;
-            _loading = false;
-            UpdateSpeedControlsEnabled();
-        }
         SaveSettings();
         await App.Bus.ApplyConfigAsync(App.Settings.Channel, CurrentHz(), CurrentCtrlMode());
     }
