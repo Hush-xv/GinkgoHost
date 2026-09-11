@@ -18,7 +18,8 @@ public partial class PinDot : UserControl
     public string Signal { get => (string)GetValue(SignalProperty); set => SetValue(SignalProperty, value); }
     public bool Gray { get => (bool)GetValue(GrayProperty); set => SetValue(GrayProperty, value); }
 
-    private static readonly Brush SignalBrush = new SolidColorBrush(Color.FromRgb(0x9a, 0x86, 0xfd));
+    // 信号类别用低饱和蓝（区别于品牌紫/状态色），明确是静态定义而非实时电平
+    private static readonly Brush SignalBrush = new SolidColorBrush(Color.FromRgb(0x7F, 0xA0, 0xC8));
     private static readonly Brush PowerBrush = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
 
     public PinDot()

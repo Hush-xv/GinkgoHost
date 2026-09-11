@@ -26,6 +26,10 @@ public partial class DevicePage : UserControl
             TxtDevState.Text = App.Bus.IsOpen
                 ? $"已连接 · 通道 {App.Bus.Channel} · {(App.Bus.ControlMode == 2 ? "软件 I2C" : $"{App.Bus.ClockHz / 1000} kHz")}"
                 : "未连接";
+            // 未发现适配器时显示行动指引；发现后隐藏
+            TxtAdapterHint.Visibility = App.Bus.AdapterCount > 0
+                ? System.Windows.Visibility.Collapsed
+                : System.Windows.Visibility.Visible;
             try
             {
                 string dll = Path.Combine(AppContext.BaseDirectory, "Ginkgo_Driver.dll");

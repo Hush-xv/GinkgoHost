@@ -7,7 +7,7 @@
         <StackPanel Margin="12,8,12,20" MaxWidth="960" HorizontalAlignment="Left">
 
             <TextBlock Text="设备概览" Style="{StaticResource PageTitleStyle}" />
-            <TextBlock Text="查看适配器状态与 VTG200A 接线定义" Style="{StaticResource PageSubtitleStyle}" />
+            <TextBlock Text="查看当前适配器状态、能力与接口定义" Style="{StaticResource PageSubtitleStyle}" />
 
             <TextBlock Text="设备信息" Style="{StaticResource SectionTitleStyle}" />
             <ui:Card Margin="0,0,0,14" Padding="12,10">
@@ -17,7 +17,7 @@
                         <ColumnDefinition />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
-                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
                     </Grid.RowDefinitions>
                     <TextBlock Text="适配器" Opacity="0.65" Margin="0,0,32,8" />
                     <TextBlock x:Name="TxtModel" Grid.Column="1" Text="Ginkgo VTG200A USB-I2C（检测后确认）" />
@@ -29,14 +29,21 @@
                     <TextBlock x:Name="TxtDevState" Grid.Row="3" Grid.Column="1" Text="未连接" />
                     <TextBlock Text="协议" Grid.Row="4" Opacity="0.65" Margin="0,0,32,0" />
                     <TextBlock Grid.Row="4" Grid.Column="1" TextWrapping="Wrap"
-                               Text="I²C 主机模式（硬件 / 软件 GPIO）· SMBus / PMBus · 从机模式规划中" />
+                               Text="I²C 主机模式（硬件 / 软件 GPIO）· SMBus / PMBus" />
+                    <TextBlock Grid.Row="5" Grid.Column="1" Text="I²C 从机模式 · 规划中" FontSize="11" Opacity="0.45" Margin="0,6,0,0" />
+                    <!-- 未发现适配器时的行动指引（D12）：扫描内建于左下「连接」动作 -->
+                    <TextBlock x:Name="TxtAdapterHint" Grid.Row="6" Grid.ColumnSpan="2" Margin="0,10,0,0" FontSize="11"
+                               Foreground="#E8C87A" TextWrapping="Wrap"
+                               Text="未发现兼容适配器 · 请检查 USB 连接，插入后点击左下「连接」自动扫描并连接" />
                 </Grid>
             </ui:Card>
 
             <TextBlock Text="VTG200A 接口与引脚" Style="{StaticResource SectionTitleStyle}" />
             <ui:Card Padding="12,10">
                 <StackPanel>
-                    <TextBlock Text="驱动不提供实时引脚电平，以下为静态接线示意。" Opacity="0.5" Margin="0,0,0,12" />
+                    <!-- 静态引脚定义说明（D7）：提高可见度，避免被误读为实时电平 -->
+                    <TextBlock Text="静态引脚定义（驱动不提供实时电平）· ● 信号线 ○ 电源 / 地"
+                               FontSize="12" Foreground="#D9B96C" Margin="0,0,0,12" />
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition /><ColumnDefinition />
