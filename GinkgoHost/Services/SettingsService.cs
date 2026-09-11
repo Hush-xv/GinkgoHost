@@ -18,6 +18,14 @@ public sealed class SettingsService
     public double LogPanelRatio { get; set; } = 0.65;
     public int LastPage { get; set; } = 1;
     public bool NavOpen { get; set; } = true;
+
+    /// <summary>上次关闭时的窗口位置与尺寸；NaN/0 表示首次启动，走系统居中。</summary>
+    public double WindowLeft { get; set; } = double.NaN;
+    public double WindowTop { get; set; } = double.NaN;
+    public double WindowWidth { get; set; } = 0;
+    public double WindowHeight { get; set; } = 0;
+    public bool WindowMaximized { get; set; } = false;
+
     public List<I2cTarget> I2cTargets { get; set; } = [];
 
     private static string FilePath()

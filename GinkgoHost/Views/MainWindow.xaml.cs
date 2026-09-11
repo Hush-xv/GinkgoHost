@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -25,6 +26,9 @@ public partial class MainWindow : FluentWindow
     public MainWindow()
     {
         InitializeComponent();
+        // 位置必须在 HWND 创建后（SourceInitialized）设置：构造期设 Left/Top+Maximized
+        // 会被 Win32 初始位置覆盖，最大化会落到默认屏幕而不是目标屏
+        SourceInitialized += (_, _) => RestoreWindowPlacement();
         _navOpen = App.Settings.NavOpen;
         ApplyNavState();
         Nav.SelectedIndex = Math.Clamp(App.Settings.LastPage, 0, 3);
@@ -40,11 +44,92 @@ public partial class MainWindow : FluentWindow
         };
     }
 
+    /// <summary>
+    /// 恢复上次关闭时的窗口位置（物理像素，混合 DPI 下往返无损）。
+    /// 首次启动或位置不在当前虚拟桌面内（如拔掉扩展屏）时回退系统居中。
+    /// </summary>
+    private void RestoreWindowPlacement()
+    {
+        var s = App.Settings;
+        var helper = new System.Windows.Interop.WindowInteropHelper(this);
+        if (double.IsNaN(s.WindowLeft) || s.WindowWidth <= 0 || helper.Handle == IntPtr.Zero)
+            return; // 首次启动：XAML CenterScreen 已生效
+        // 标题栏须有 140x80 物理像素留在虚拟桌面内，防止拔屏后窗口不可见
+        bool visible = s.WindowLeft + 140 > Win32Interop.VirtualScreenLeft
+                    && s.WindowLeft < Win32Interop.VirtualScreenRight - 140
+                    && s.WindowTop + 80 > Win32Interop.VirtualScreenTop
+                    && s.WindowTop < Win32Interop.VirtualScreenBottom - 80;
+        if (!visible)
+        {
+            Dbg.Log($"MainWindow.RestoreWindowPlacement: saved pos ({s.WindowLeft:F0},{s.WindowTop:F0}) outside virtual screen, fallback center");
+            Win32Interop.SetWindowPos(helper.Handle, IntPtr.Zero,
+                (Win32Interop.VirtualScreenLeft + Win32Interop.VirtualScreenRight) / 2 - (int)s.WindowWidth / 2,
+                (Win32Interop.VirtualScreenTop + Win32Interop.VirtualScreenBottom) / 2 - (int)s.WindowHeight / 2,
+                0, 0, Win32Interop.SWP_NOSIZE | Win32Interop.SWP_NOZORDER);
+            return;
+        }
+        Win32Interop.SetWindowPos(helper.Handle, IntPtr.Zero,
+            (int)s.WindowLeft, (int)s.WindowTop, (int)s.WindowWidth, (int)s.WindowHeight, Win32Interop.SWP_NOZORDER);
+        if (s.WindowMaximized)
+            Win32Interop.ShowWindow(helper.Handle, Win32Interop.SW_MAXIMIZE);
+        Dbg.Log($"MainWindow.RestoreWindowPlacement: ({s.WindowLeft:F0},{s.WindowTop:F0}) {s.WindowWidth:F0}x{s.WindowHeight:F0} max={s.WindowMaximized}");
+    }
+
+    private void SaveWindowPlacement()
+    {
+        var s = App.Settings;
+        var helper = new System.Windows.Interop.WindowInteropHelper(this);
+        if (helper.Handle == IntPtr.Zero) return;
+        var p = new Win32Interop.WINDOWPLACEMENT();
+        p.length = System.Runtime.InteropServices.Marshal.SizeOf<Win32Interop.WINDOWPLACEMENT>();
+        if (!Win32Interop.GetWindowPlacement(helper.Handle, ref p)) return;
+        // rcNormalPosition 为还原态矩形（物理像素），最大化时不丢还原位置
+        s.WindowLeft = p.rcNormalLeft;
+        s.WindowTop = p.rcNormalTop;
+        s.WindowWidth = p.rcNormalRight - p.rcNormalLeft;
+        s.WindowHeight = p.rcNormalBottom - p.rcNormalTop;
+        s.WindowMaximized = p.showCmd == Win32Interop.SW_SHOWMAXIMIZED;
+    }
+
+    /// <summary>窗口定位用的 Win32 物理像素接口：虚拟桌面指标、窗口矩形与还原位置。</summary>
+    internal static class Win32Interop
+    {
+        [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+        [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int w, int ht, uint f);
+        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+        [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
+        [DllImport("user32.dll")] public static extern bool GetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT p);
+        [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RECT { public int L, T, R, B; }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct WINDOWPLACEMENT
+        {
+            public int length, flags, showCmd;
+            public int ptMinX, ptMinY, ptMaxX, ptMaxY;
+            public int rcNormalLeft, rcNormalTop, rcNormalRight, rcNormalBottom;
+        }
+
+        public const int SW_SHOWMAXIMIZED = 3;
+        public const int SW_MAXIMIZE = 3;
+        public const uint SWP_NOZORDER = 0x0004;
+        public const uint SWP_NOSIZE = 0x0008;
+
+        // SM_XVIRTUALSCREEN=76 / SM_YVIRTUALSCREEN=77 / SM_CXVIRTUALSCREEN=78 / SM_CYVIRTUALSCREEN=79
+        public static int VirtualScreenLeft => GetSystemMetrics(76);
+        public static int VirtualScreenTop => GetSystemMetrics(77);
+        public static int VirtualScreenRight => VirtualScreenLeft + GetSystemMetrics(78);
+        public static int VirtualScreenBottom => VirtualScreenTop + GetSystemMetrics(79);
+    }
+
     /// <summary>正常关闭时串行释放驱动会话，避免总线操作与 CloseDevice 并发。</summary>
     private async void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
         if (_closing) return;
         _closing = true;
+        SaveWindowPlacement();
         if (!App.Bus.IsOpen) return;
 
         e.Cancel = true;

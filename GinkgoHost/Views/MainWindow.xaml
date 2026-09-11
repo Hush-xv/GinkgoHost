@@ -8,7 +8,7 @@
                  MinWidth="1040" MinHeight="640"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="Mica"
-                 WindowStartupLocation="CenterScreen">
+                 WindowStartupLocation="Manual">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
