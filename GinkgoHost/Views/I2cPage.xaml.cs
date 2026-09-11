@@ -203,22 +203,14 @@ public partial class I2cPage : UserControl
             ControlColumn.Width = new GridLength(Math.Min(width, ControlColumn.MaxWidth));
         }
 
-        if (wide)
-        {
-            // 数据卡按实际内容高度排布，所有余量只交给日志区，避免超宽屏出现中间空白带。
-            LogRow.Height = new GridLength(1, GridUnitType.Star);
-            DataRow.Height = GridLength.Auto;
-        }
-        else
-        {
-            double ratio = Math.Clamp(App.Settings.LogPanelRatio, 0.3, 0.8);
-            LogRow.Height = new GridLength(ratio, GridUnitType.Star);
-            DataRow.Height = new GridLength(1 - ratio, GridUnitType.Star);
-        }
+        // 宽窄一律按比例分行：宽屏下若 DataRow 为 Auto，拖动 LogSplitter 会把行改成固定值导致布局散架
+        double ratio = Math.Clamp(App.Settings.LogPanelRatio, 0.3, 0.8);
+        LogRow.Height = new GridLength(ratio, GridUnitType.Star);
+        DataRow.Height = new GridLength(1 - ratio, GridUnitType.Star);
 
         GridReg.FontSize = wide ? 13 : 12;
         GridInit.FontSize = wide ? 13 : 12;
-        DataOperationsCard.FontSize = wide ? 13 : 12;
+        System.Windows.Documents.TextElement.SetFontSize(DataOperationsCard, wide ? 13 : 12);
         Dbg.Log($"I2cPage.ApplyResponsiveLayout: wide={wide} width={ActualWidth:F0} height={ActualHeight:F0}");
     }
 

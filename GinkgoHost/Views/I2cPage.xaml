@@ -368,8 +368,10 @@
                               MouseDoubleClick="LogSplitter_DoubleClick"
                               ToolTip="上下拖动调整区域 · 双击复位" />
 
-                <!-- 数据操作：目标参数 | 命令编辑器 | 读取结果 -->
-                <ui:Card x:Name="DataOperationsCard" Grid.Row="2" Margin="0,6,0,0" Padding="10,8">
+                <!-- 数据操作：目标参数 | 命令编辑器 | 读取结果。Border 代替 ui:Card：其模板把内容垂直居中，拖大分隔条后内容会悬浮。 -->
+                <Border x:Name="DataOperationsCard" Grid.Row="2" VerticalAlignment="Stretch"
+                        Background="#252525" BorderBrush="#3D3D3D" BorderThickness="1" CornerRadius="8"
+                        Margin="0,6,0,0" Padding="10,8">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -444,7 +446,7 @@
                         </DockPanel>
                         </Border>
                     </Grid>
-                </ui:Card>
+                </Border>
             </Grid>
         </Grid>
     </DockPanel>
