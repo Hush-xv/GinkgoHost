@@ -404,7 +404,7 @@
                                         <ui:Button x:Name="BtnScanBus" Content="扫描" Click="BtnScan_Click" IsEnabled="False" Width="68" Margin="0,0,10,0"
                                                    ToolTip="扫描当前通道上的从机地址 (F5) · 扫描属于地址发现，与寄存器无关" />
                                         <TextBlock Text="格式" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,5,0" />
-                                        <ComboBox x:Name="CmbAddrFmt" SelectedIndex="0" Width="76" Margin="0,0,8,0"
+                                        <ComboBox x:Name="CmbAddrFmt" SelectedIndex="0" Width="88" Margin="0,0,8,0"
                                                   SelectionChanged="CmbAddrFmt_SelectionChanged"
                                                   ToolTip="从机地址显示格式：7-bit 为原始地址，8-bit 为读写合成地址（7-bit 左移 1 位）">
                                             <ComboBoxItem Content="7-bit" />

@@ -15,17 +15,6 @@
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
-        <!-- 方向色点：RX 蓝 / TX 橙 / SYS 灰，弱化处理不抢注意力 -->
-        <Style x:Key="DirDot" TargetType="Ellipse">
-            <Setter Property="Width" Value="8" />
-            <Setter Property="Height" Value="8" />
-            <Setter Property="Fill" Value="#8A8A8A" />
-            <Setter Property="VerticalAlignment" Value="Center" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding Dir}" Value="RX"><Setter Property="Fill" Value="#53A9FD" /></DataTrigger>
-                <DataTrigger Binding="{Binding Dir}" Value="TX"><Setter Property="Fill" Value="#FFB45B" /></DataTrigger>
-            </Style.Triggers>
-        </Style>
         <!-- 操作类型：主要事务标识，低透明语义底 + 语义色文字 -->
         <Style x:Key="OpChip" TargetType="Border" BasedOn="{StaticResource TagBase}">
             <Setter Property="Background" Value="#1F8A8A8A" />
@@ -47,9 +36,19 @@
             <Setter Property="Foreground" Value="#9A9A9A" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
+        <!-- 状态：正常 OK 只用轻量绿字（高倍日志下避免满屏绿块）；ERR 红底 badge 保证异常一眼可见 -->
         <Style x:Key="ResultChip" TargetType="Border" BasedOn="{StaticResource TagBase}">
             <Setter Property="Background" Value="#1AFF6D7F" />
-            <Style.Triggers><DataTrigger Binding="{Binding Ok}" Value="True"><Setter Property="Background" Value="#1A58C667" /></DataTrigger></Style.Triggers>
+            <Setter Property="Padding" Value="7,2" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Ok}" Value="True">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="Padding" Value="0" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Dir}" Value="SYS">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
         <Style x:Key="ResultText" TargetType="TextBlock" BasedOn="{StaticResource TagText}">
             <Setter Property="Foreground" Value="#FF6D7F" />
@@ -60,6 +59,9 @@
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Foreground" Value="#787878" />
             <Setter Property="VerticalAlignment" Value="Center" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Dir}" Value="SYS"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger>
+            </Style.Triggers>
         </Style>
         <!-- 事务流筛选 chip：弱化视觉（透明底/细描边/小号），与一级功能模式按钮拉开层级。 -->
         <Style x:Key="FilterPill" TargetType="ui:Button">
@@ -108,20 +110,20 @@
                 <!-- 平面表头：信息层级由列与细分隔线承担，不再额外套卡片。 -->
                 <Border Background="#363636" BorderBrush="#505050" BorderThickness="0,0,0,1">
                     <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="88" />
-                            <ColumnDefinition Width="240" />
-                            <ColumnDefinition Width="78" />
-                            <ColumnDefinition Width="64" />
-                            <ColumnDefinition Width="72" />
-                            <ColumnDefinition />
-                        </Grid.ColumnDefinitions>
-                        <Button Content="时间" Tag="Ts" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
-                        <Button Content="操作" Tag="Op" Grid.Column="1" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
-                        <Button Content="地址" Tag="Addr" Grid.Column="2" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
-                        <Button Content="状态" Tag="RetText" Grid.Column="3" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
-                        <Button Content="耗时" Tag="Ms" Grid.Column="4" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
-                        <Button Content="数据 HEX（双击记录复制）" Tag="HexGrouped" Grid.Column="5" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="84" />
+                                    <ColumnDefinition Width="230" />
+                                    <ColumnDefinition Width="72" />
+                                    <ColumnDefinition Width="60" />
+                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition />
+                                </Grid.ColumnDefinitions>
+                                <Button Content="时间" Tag="Ts" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Button Content="操作" Tag="Op" Grid.Column="1" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Button Content="地址" Tag="Addr" Grid.Column="2" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Button Content="状态" Tag="RetText" Grid.Column="3" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Button Content="耗时" Tag="Ms" Grid.Column="4" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Button Content="数据 HEX（双击记录复制）" Tag="HexGrouped" Grid.Column="5" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
                     </Grid>
                 </Border>
 
@@ -141,18 +143,17 @@
                         <DataTemplate>
                             <Grid Margin="8,4">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="88" />
-                                    <ColumnDefinition Width="240" />
-                                    <ColumnDefinition Width="78" />
-                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition Width="84" />
+                                    <ColumnDefinition Width="230" />
                                     <ColumnDefinition Width="72" />
+                                    <ColumnDefinition Width="60" />
+                                    <ColumnDefinition Width="64" />
                                     <ColumnDefinition />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="{Binding Time}" FontFamily="Consolas" FontSize="12" Opacity="0.62" VerticalAlignment="Center" />
-                                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Ellipse Style="{StaticResource DirDot}" Margin="0,0,7,0" />
-                                    <Border Style="{StaticResource OpChip}"><TextBlock Text="{Binding Op}" Style="{StaticResource OpText}" /></Border>
-                                </StackPanel>
+                                <Border Grid.Column="1" Style="{StaticResource OpChip}" HorizontalAlignment="Left">
+                                    <TextBlock Text="{Binding Op}" Style="{StaticResource OpText}" />
+                                </Border>
                                 <TextBlock Grid.Column="2" Text="{Binding Addr}" Style="{StaticResource AddrText}" />
                                 <Border Grid.Column="3" Style="{StaticResource ResultChip}" HorizontalAlignment="Left">
                                     <TextBlock Text="{Binding RetText}" Style="{StaticResource ResultText}" />

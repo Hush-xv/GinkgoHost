@@ -35,6 +35,8 @@ public partial class LogPanel : UserControl
         _view.Filter = MatchesFilter;
         Lst.ItemsSource = _view;
         log.CollectionChanged += OnLogChanged;
+        _total = log.Count;
+        _okCount = log.Count(x => x.Ok);
         UpdateFilterButtons();
         UpdateCount();
         UpdateLogPresentation();
@@ -42,6 +44,24 @@ public partial class LogPanel : UserControl
 
     private void OnLogChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
+        // 增量维护计数：高频轮询下避免每条记录全表 LINQ 扫描
+        switch (e.Action)
+        {
+            case NotifyCollectionChangedAction.Add:
+                _total += e.NewItems!.Count;
+                foreach (LogEntry i in e.NewItems) if (i.Ok) _okCount++;
+                break;
+            case NotifyCollectionChangedAction.Remove:
+                _total -= e.OldItems!.Count;
+                foreach (LogEntry i in e.OldItems) if (i.Ok) _okCount--;
+                break;
+            case NotifyCollectionChangedAction.Reset:
+                _total = 0; _okCount = 0;
+                break;
+            default:
+                _total = _log.Count; _okCount = _log.Count(x => x.Ok);
+                break;
+        }
         UpdateCount();
         UpdateLogPresentation();
         if (_followLatest && e.Action == NotifyCollectionChangedAction.Add && Lst.Items.Count > 0)
@@ -79,7 +99,7 @@ public partial class LogPanel : UserControl
     private void ChkFollow_Changed(object sender, RoutedEventArgs e)
     {
         _followLatest = ChkFollow.IsChecked == true;
-        TxtFeedback.Text = _followLatest ? "自动跟随" : "已暂停跟随";
+        // 跟随状态由 CheckBox 自身表达，不再写 TxtFeedback 造成「自动跟随/跟随最新」重复
     }
 
     private void BtnClear_Click(object sender, RoutedEventArgs e)
@@ -131,16 +151,17 @@ public partial class LogPanel : UserControl
     private static readonly Brush CountOkBrush = new SolidColorBrush(Color.FromRgb(0x91, 0xD5, 0xA0));
     private static readonly Brush CountErrBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0x9B, 0x9B));
     private static readonly Brush CountErrZeroBrush = new SolidColorBrush(Color.FromRgb(0x8C, 0x8C, 0x8C));
+    private int _total;
+    private int _okCount;
 
     /// <summary>头部统计：条数 + 成功/失败带色计数。失败为 0 时保持灰色，只有出现失败才转红。</summary>
     private void UpdateCount()
     {
-        int total = _log.Count, ok = _log.Count(e => e.Ok), err = total - ok;
-        int shown = _view.Cast<LogEntry>().Count();
+        int shown = _filter == "all" ? _total : _view.Cast<LogEntry>().Count();
         TxtCount.Inlines.Clear();
-        TxtCount.Inlines.Add(new Run(shown == total ? $"{total} 条" : $"{shown} / {total} 条"));
-        TxtCount.Inlines.Add(new Run($"   成功 {ok}") { Foreground = CountOkBrush });
-        TxtCount.Inlines.Add(new Run($"   失败 {err}") { Foreground = err > 0 ? CountErrBrush : CountErrZeroBrush });
+        TxtCount.Inlines.Add(new Run(shown == _total ? $"{_total} 条" : $"{shown} / {_total} 条"));
+        TxtCount.Inlines.Add(new Run($"   成功 {_okCount}") { Foreground = CountOkBrush });
+        TxtCount.Inlines.Add(new Run($"   失败 {_total - _okCount}") { Foreground = _total - _okCount > 0 ? CountErrBrush : CountErrZeroBrush });
     }
 
     private void UpdateFilterButtons()
