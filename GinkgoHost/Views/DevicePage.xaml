@@ -17,7 +17,7 @@
                         <ColumnDefinition />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
-                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
                     </Grid.RowDefinitions>
                     <TextBlock Text="适配器" Opacity="0.65" Margin="0,0,32,8" />
                     <TextBlock x:Name="TxtModel" Grid.Column="1" Text="Ginkgo VTG200A USB-I2C（型号待确认）" />
@@ -33,10 +33,11 @@
                     <TextBlock x:Name="TxtDevState" Grid.Row="5" Grid.Column="1" Text="未连接" />
                     <TextBlock Text="能力" Grid.Row="6" Opacity="0.65" Margin="0,0,32,0" />
                     <TextBlock Grid.Row="6" Grid.Column="1" TextWrapping="Wrap"
-                               Text="I²C Master（硬件 / 软件 GPIO）· SMBus · PMBus" />
-                    <TextBlock Grid.Row="7" Grid.Column="1" Text="I²C Slave · 规划中" FontSize="11" Opacity="0.45" Margin="0,6,0,0" />
+                               Text="I²C Master · SMBus · PMBus" />
+                    <TextBlock Grid.Row="7" Grid.Column="1" Text="I²C 实现：硬件外设 / GPIO 模拟 · I²C Slave 暂未支持"
+                               FontSize="11" Opacity="0.45" Margin="0,6,0,0" />
                     <!-- 未发现适配器时的行动指引（D12）：扫描内建于左下「连接」动作 -->
-                    <TextBlock x:Name="TxtAdapterHint" Grid.Row="7" Grid.ColumnSpan="2" Margin="0,10,0,0" FontSize="11"
+                    <TextBlock x:Name="TxtAdapterHint" Grid.Row="8" Grid.ColumnSpan="2" Margin="0,10,0,0" FontSize="11"
                                Foreground="#E8C87A" TextWrapping="Wrap"
                                Text="未发现兼容适配器 · 请检查 USB 连接，插入后点击左下「连接」自动扫描并连接" />
                 </Grid>
@@ -45,9 +46,14 @@
             <TextBlock x:Name="TxtPinoutTitle" Text="接口与引脚" Style="{StaticResource SectionTitleStyle}" />
             <ui:Card Padding="12,10">
                 <StackPanel>
-                    <!-- 静态引脚定义说明（D7）：提高可见度，避免被误读为实时电平 -->
-                    <TextBlock Text="静态引脚定义（驱动不提供实时电平）· 通道信号列表，接线以设备丝印为准 · ● 信号线 ○ 电源 / 地"
-                               FontSize="12" Foreground="#9FB8D8" Margin="0,0,0,12" />
+                    <!-- 静态引脚说明（D7）：主说明 + 次级说明 + 右侧图例，不再拼成一行 -->
+                    <DockPanel Margin="0,0,0,4">
+                        <TextBlock DockPanel.Dock="Right" Text="● 信号线　○ 电源 / 地" FontSize="12"
+                                   Foreground="#9FB8D8" VerticalAlignment="Center" />
+                        <TextBlock Text="静态引脚定义" FontSize="12" FontWeight="SemiBold" />
+                    </DockPanel>
+                    <TextBlock Text="驱动不提供实时电平 · 通道信号列表，接线以设备丝印为准"
+                               FontSize="11" Opacity="0.55" Margin="0,0,0,12" />
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition /><ColumnDefinition />

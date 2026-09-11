@@ -64,8 +64,9 @@ public partial class DevicePage : UserControl
                         string sn = GinkgoDriver.Ascii(info.SerialNumber);
                         TxtSerial.Text = sn.Length > 0 ? sn : GinkgoDriver.Hex(info.SerialNumber);
                         TxtFirmware.Text = $"v{info.FirmwareVersion[0]}.{info.FirmwareVersion[1]}";
-                        string product = GinkgoDriver.Ascii(info.ProductName);
-                        if (product.Length > 0) TxtModel.Text = product;
+                        // 驱动内部名（Ginkgo_USB_I2C_Adaptor）只进 tooltip；UI 主字段保持用户友好的产品名
+                        string native = GinkgoDriver.Ascii(info.ProductName);
+                        TxtModel.ToolTip = native.Length > 0 ? $"驱动标识：{native}" : null;
                     }
                 }
                 catch (Exception ex)
