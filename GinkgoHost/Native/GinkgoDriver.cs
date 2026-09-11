@@ -66,6 +66,53 @@ public static class GinkgoDriver
     [DllImport("Ginkgo_Driver.dll")]
     public static extern int VII_TimeConfig(int DevType, int DevIndex, int I2CIndex, ref VII_TIME_CONFIG pTimeConfig);
 
+    /// <summary>适配器身份信息（官方 VII_BOARD_INFO）。</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct VII_BOARD_INFO
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)] public byte[] ProductName;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)] public byte[] FirmwareVersion;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)] public byte[] HardwareVersion;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 12)] public byte[] SerialNumber;
+    }
+
+    /// <summary>读取适配器身份（型号/固件/硬件版本/序列号）。DevIndex 从 0 起。</summary>
+    [DllImport("Ginkgo_Driver.dll")]
+    public static extern int VII_ReadBoardInfo(int DevType, int DevIndex, ref VII_BOARD_INFO pBoardInfo);
+
+    /// <summary>两参变体（部分固件按此签名导出，DevIndex, ref BoardInfo）。</summary>
+    [DllImport("Ginkgo_Driver.dll", EntryPoint = "VII_ReadBoardInfo")]
+    private static extern int VII_ReadBoardInfo2(int DevIndex, ref VII_BOARD_INFO pBoardInfo);
+
+    /// <summary>按 DevIndex 读 BoardInfo（自动适配两参/三参导出）。</summary>
+    public static int ReadBoardInfo(int devIndex, ref VII_BOARD_INFO info)
+    {
+        int ret = VII_ReadBoardInfo2(devIndex, ref info);
+        if (ret == -8) // 部分版本仅导出三参形态
+        {
+            var info3 = new VII_BOARD_INFO
+            {
+                ProductName = new byte[32],
+                FirmwareVersion = new byte[4],
+                HardwareVersion = new byte[4],
+                SerialNumber = new byte[12]
+            };
+            ret = VII_ReadBoardInfo(VII_USBI2C, devIndex, ref info3);
+            info = info3;
+        }
+        return ret;
+    }
+
+    /// <summary>把定长字节数组转成截至 NUL 的 ASCII 文本。</summary>
+    public static string Ascii(byte[] bytes)
+    {
+        int end = Array.IndexOf(bytes, (byte)0);
+        if (end < 0) end = bytes.Length;
+        return System.Text.Encoding.ASCII.GetString(bytes, 0, end).Trim();
+    }
+
+    public static string Hex(byte[] bytes) => Convert.ToHexString(bytes);
+
     [DllImport("Ginkgo_Driver.dll")]
     public static extern int VII_WriteBytes(int DevType, int DevIndex, int I2CIndex, ushort Addr, uint SubAddr, byte[] pWriteData, ushort Len);
 

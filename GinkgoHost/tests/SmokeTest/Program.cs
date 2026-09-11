@@ -96,6 +96,38 @@ if (args.Length > 0 && args[0] == "--aardvark")
     return avFailures == 0 ? 0 : 1;
 }
 
+// ── BoardInfo 探针：--boardinfo ──
+// 验证 VII_ReadBoardInfo 签名与序列号/固件读取（独立进程，无 GUI 会话冲突）。
+if (args.Length > 0 && args[0] == "--boardinfo")
+{
+    if (GinkgoDriver.VII_ScanDevice(1) <= 0) { Console.WriteLine("FAIL 未检测到适配器"); return 1; }
+    int oret = GinkgoDriver.VII_OpenDevice(GinkgoDriver.VII_USBI2C, 0, 0);
+    Console.WriteLine($"open ret={oret}");
+
+    var info = new GinkgoDriver.VII_BOARD_INFO
+    {
+        ProductName = new byte[32],
+        FirmwareVersion = new byte[4],
+        HardwareVersion = new byte[4],
+        SerialNumber = new byte[12]
+    };
+    // 姿势 A：三参（DevType, DevIndex, ref）
+    int retA = GinkgoDriver.VII_ReadBoardInfo(GinkgoDriver.VII_USBI2C, 0, ref info);
+    Console.WriteLine($"三参 ReadBoardInfo ret={retA}: product={GinkgoDriver.Ascii(info.ProductName)} fw=v{info.FirmwareVersion[0]}.{info.FirmwareVersion[1]} sn={GinkgoDriver.Ascii(info.SerialNumber)} / hex={GinkgoDriver.Hex(info.SerialNumber)}");
+
+    // 姿势 B：两参（DevIndex, ref）——UART 族签名
+    var info2 = new GinkgoDriver.VII_BOARD_INFO
+    {
+        ProductName = new byte[32],
+        FirmwareVersion = new byte[4],
+        HardwareVersion = new byte[4],
+        SerialNumber = new byte[12]
+    };
+    int retB = GinkgoDriver.ReadBoardInfo(0, ref info2);
+    Console.WriteLine($"ReadBoardInfo(自动适配) ret={retB}: product={GinkgoDriver.Ascii(info2.ProductName)} fw=v{info2.FirmwareVersion[0]}.{info2.FirmwareVersion[1]} sn={GinkgoDriver.Ascii(info2.SerialNumber)} / hex={GinkgoDriver.Hex(info2.SerialNumber)}");
+    return 0;
+}
+
 // ── 探针模式：dotnet run --project tests/SmokeTest -- --probe <7位地址hex> [reg] [len] [期望值hex] ──
 // 绕过 GUI 直接验证总线读写，支持在两种速率下各扫一遍对比。
 if (args.Length > 0 && args[0] == "--probe")
