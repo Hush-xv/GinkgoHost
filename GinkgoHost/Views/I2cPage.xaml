@@ -373,19 +373,12 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" MinHeight="86" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                        <DockPanel Margin="0,0,0,7">
-                            <TextBlock Text="数据操作" FontWeight="SemiBold" />
-                            <TextBlock Text="Ctrl+R 读取 · Ctrl+W 写入 · F5 扫描"
-                                       DockPanel.Dock="Right" FontSize="11" Opacity="0.5" />
-                        </DockPanel>
-
                         <!-- 固定单行命令栏；空间不足只横向滚动，避免缩放时重排控件。 -->
-                        <ScrollViewer Grid.Row="1" Margin="0,0,0,6" HorizontalScrollBarVisibility="Auto"
+                        <ScrollViewer Grid.Row="0" Margin="0,0,0,6" HorizontalScrollBarVisibility="Auto"
                                       VerticalScrollBarVisibility="Disabled" CanContentScroll="False">
                             <StackPanel Orientation="Horizontal" MinWidth="1050" UseLayoutRounding="True" SnapsToDevicePixels="True">
                                 <Border x:Name="DataTargetGroup" Style="{StaticResource DataGroupStyle}">
@@ -433,7 +426,7 @@
                             </StackPanel>
                         </ScrollViewer>
 
-                        <ui:TextBox x:Name="TxtDataBuffer" Grid.Row="2" Text="DE AD BE EF"
+                        <ui:TextBox x:Name="TxtDataBuffer" Grid.Row="1" Text="DE AD BE EF"
                                     FontFamily="Consolas" FontSize="14" AcceptsReturn="True" MinHeight="94"
                                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                     VerticalContentAlignment="Top" TextChanged="TxtDataBuffer_TextChanged"
@@ -441,7 +434,7 @@
                                     Background="#303030" BorderBrush="#525252"
                                     PlaceholderText="输入待写数据；读取结果会显示在这里" />
 
-                        <Border Grid.Row="3" Margin="0,6,0,0" Padding="6,4" CornerRadius="4"
+                        <Border Grid.Row="2" Margin="0,6,0,0" Padding="6,4" CornerRadius="4"
                                 Background="#303030" BorderBrush="#484848" BorderThickness="1">
                         <DockPanel>
                             <TextBlock x:Name="TxtBufferMeta" Text="4 字节 · 待写数据" DockPanel.Dock="Right"
