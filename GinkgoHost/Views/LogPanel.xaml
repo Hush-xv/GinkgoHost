@@ -41,9 +41,16 @@
             <Setter Property="Foreground" Value="#FF9B9B" />
             <Style.Triggers><DataTrigger Binding="{Binding Ok}" Value="True"><Setter Property="Foreground" Value="#91D5A0" /></DataTrigger></Style.Triggers>
         </Style>
+        <!-- 事务流筛选 chip：弱化视觉（透明底/细描边/小号），与一级功能模式按钮拉开层级。 -->
         <Style x:Key="FilterPill" TargetType="ui:Button">
-            <Setter Property="MinWidth" Value="0" /><Setter Property="Height" Value="26" /><Setter Property="Padding" Value="9,1" />
-            <Setter Property="Margin" Value="0,0,3,0" /><Setter Property="FontSize" Value="11" />
+            <Setter Property="Height" Value="22" /><Setter Property="FontSize" Value="10.5" />
+            <Setter Property="Padding" Value="8,1" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="CornerRadius" Value="11" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="#30FFFFFF" />
+            <Setter Property="Foreground" Value="#A0A0A0" />
         </Style>
         <Style x:Key="LogHeaderButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Padding" Value="8,6" />
@@ -61,7 +68,7 @@
                 <TextBlock x:Name="TxtCount" Margin="8,0,0,0" Opacity="0.55" VerticalAlignment="Center" />
                 <TextBlock x:Name="TxtFeedback" Margin="10,0,0,0" Foreground="#91D5A0" FontSize="11" VerticalAlignment="Center" />
                 <StackPanel Orientation="Horizontal" Margin="14,0,0,0">
-                    <ui:Button x:Name="BtnFilterAll" Content="全部" Tag="all" Appearance="Primary" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
+                    <ui:Button x:Name="BtnFilterAll" Content="全部" Tag="all" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
                     <ui:Button x:Name="BtnFilterRead" Content="读取" Tag="read" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
                     <ui:Button x:Name="BtnFilterWrite" Content="写入" Tag="write" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
                     <ui:Button x:Name="BtnFilterSystem" Content="系统" Tag="system" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />

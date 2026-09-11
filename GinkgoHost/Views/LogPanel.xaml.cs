@@ -35,6 +35,7 @@ public partial class LogPanel : UserControl
         _view.Filter = MatchesFilter;
         Lst.ItemsSource = _view;
         log.CollectionChanged += OnLogChanged;
+        UpdateFilterButtons();
         UpdateCount();
         UpdateLogPresentation();
     }
@@ -144,11 +145,26 @@ public partial class LogPanel : UserControl
 
     private void UpdateFilterButtons()
     {
-        BtnFilterAll.Appearance = _filter == "all" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
-        BtnFilterRead.Appearance = _filter == "read" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
-        BtnFilterWrite.Appearance = _filter == "write" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
-        BtnFilterSystem.Appearance = _filter == "system" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
-        BtnFilterError.Appearance = _filter == "error" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
+        // 弱化为 chip：选中=淡紫描边胶囊，未选中=透明；与一级模式按钮（实心 Primary）拉开层级
+        SetFilterPill(BtnFilterAll, _filter == "all");
+        SetFilterPill(BtnFilterRead, _filter == "read");
+        SetFilterPill(BtnFilterWrite, _filter == "write");
+        SetFilterPill(BtnFilterSystem, _filter == "system");
+        SetFilterPill(BtnFilterError, _filter == "error");
+    }
+
+    private static void SetFilterPill(Wpf.Ui.Controls.Button pill, bool active)
+    {
+        pill.Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary;
+        pill.Background = active
+            ? new SolidColorBrush(Color.FromArgb(0x38, 0x9A, 0x86, 0xFD))
+            : Brushes.Transparent;
+        pill.BorderBrush = active
+            ? new SolidColorBrush(Color.FromArgb(0x66, 0x9A, 0x86, 0xFD))
+            : new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
+        pill.Foreground = active
+            ? new SolidColorBrush(Color.FromRgb(0xD9, 0xD2, 0xFF))
+            : new SolidColorBrush(Color.FromRgb(0xA0, 0xA0, 0xA0));
     }
 
     private static string FilterName(string filter) => filter switch

@@ -126,15 +126,15 @@
                         <TextBlock Text="I²C 工作台" FontWeight="SemiBold" />
                         <TextBlock Text="总线上下文" FontSize="10" Opacity="0.5" Margin="0,1,0,0" />
                     </StackPanel>
-                    <TextBlock Text="模式" VerticalAlignment="Center" Opacity="0.65" />
-                    <ComboBox x:Name="CmbCtrlMode" MinWidth="120" Margin="7,0,12,0" SelectionChanged="CmbCtrlMode_SelectionChanged">
+                    <ComboBox x:Name="CmbCtrlMode" MinWidth="120" Margin="0,0,10,0" SelectionChanged="CmbCtrlMode_SelectionChanged"
+                              ToolTip="总线模式">
                         <ComboBoxItem Content="硬件 I²C" Tag="1" />
                         <ComboBoxItem Content="软件 I²C (GPIO)" Tag="2" />
                     </ComboBox>
-                    <TextBlock Text="通道" VerticalAlignment="Center" Opacity="0.65" />
-                    <ComboBox x:Name="CmbChannel" MinWidth="92" Margin="7,0,12,0" SelectionChanged="CmbChannel_SelectionChanged" />
-                    <TextBlock Text="速率" VerticalAlignment="Center" Opacity="0.65" />
-                    <ComboBox x:Name="CmbSpeed" MinWidth="110" Margin="7,0,12,0" SelectionChanged="CmbSpeed_SelectionChanged">
+                    <ComboBox x:Name="CmbChannel" MinWidth="92" Margin="0,0,10,0" SelectionChanged="CmbChannel_SelectionChanged"
+                              ToolTip="通道" />
+                    <ComboBox x:Name="CmbSpeed" MinWidth="110" Margin="0,0,14,0" SelectionChanged="CmbSpeed_SelectionChanged"
+                              ToolTip="速率">
                         <ComboBoxItem Content="100 kHz" Tag="100000" />
                         <ComboBoxItem Content="400 kHz" Tag="400000" />
                         <ComboBoxItem Content="1 MHz" Tag="1000000" />
@@ -399,6 +399,8 @@
                                         <TextBlock Text="地址" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,5,0" />
                                         <ui:TextBox x:Name="TxtAddr" Width="66" FontFamily="Consolas" Margin="0,0,8,0"
                                                     TextChanged="TxtAddr_TextChanged" LostFocus="TargetInput_LostFocus" />
+                                        <ui:Button x:Name="BtnScanBus" Content="扫描" Click="BtnScan_Click" IsEnabled="False" Width="68" Margin="0,0,10,0"
+                                                   ToolTip="扫描当前通道上的从机地址 (F5) · 扫描属于地址发现，与寄存器无关" />
                                         <TextBlock Text="格式" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,5,0" />
                                         <ComboBox x:Name="CmbAddrFmt" SelectedIndex="0" Width="68" Margin="0,0,8,0"
                                                   SelectionChanged="CmbAddrFmt_SelectionChanged">
@@ -409,16 +411,16 @@
                                                    ToolTip="寄存器号（子地址）。留空 = 原始读写" />
                                         <ui:TextBox x:Name="TxtSubAddr" Text="00" MaxLength="2" Width="72" FontFamily="Consolas" Margin="0,0,8,0"
                                                     TextChanged="TxtSubAddr_TextChanged" LostFocus="TargetInput_LostFocus" />
-                                        <ui:Button x:Name="BtnScanBus" Content="扫描" Click="BtnScan_Click" IsEnabled="False" Width="68"
-                                                   ToolTip="扫描当前通道上的从机地址 (F5)" />
                                     </StackPanel>
                                 </Border>
                                 <Border x:Name="DataTransferGroup" Style="{StaticResource DataGroupStyle}" Margin="10,0,0,0">
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <TextBlock Text="读取长度" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,5,0" />
+                                        <TextBlock Text="读取参数" Style="{StaticResource DataGroupHeadingStyle}" Margin="0,0,8,0" />
+                                        <TextBlock Text="长度" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,5,0" />
                                         <ui:TextBox x:Name="TxtReadSize" Text="8" Width="54" Margin="0,0,10,0"
                                                     TextChanged="TxtReadSize_TextChanged" LostFocus="DataInput_LostFocus" />
                                         <CheckBox x:Name="ChkWriteRead" Content="写后读取" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                        <Border Width="1" Height="22" Background="#3D3D3D" Margin="0,0,12,0" />
                                         <ui:Button x:Name="BtnRead" Content="读取" Click="BtnRead_Click" IsEnabled="False" Width="68" Margin="0,0,6,0"
                                                    ToolTip="读取数据 (Ctrl+R)" />
                                         <ui:Button x:Name="BtnWrite" Content="写入" Appearance="Primary" IsEnabled="False" Click="BtnWrite_Click" Width="68"
