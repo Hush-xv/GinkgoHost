@@ -1,4 +1,3 @@
-using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -17,29 +16,47 @@ public partial class MainWindow : FluentWindow
 
     private static readonly Brush DotOn = new SolidColorBrush(Color.FromRgb(0x4c, 0xaf, 0x50));
     private static readonly Brush DotOff = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+    private bool _windowReady;
+    private bool _navOpen = true;
+    private bool _connectionBusy;
 
     public MainWindow()
     {
         InitializeComponent();
+        _navOpen = App.Settings.NavOpen;
+        ApplyNavState();
+        Nav.SelectedIndex = Math.Clamp(App.Settings.LastPage, 0, 3);
+        _windowReady = true;
         App.Bus.StateChanged += RefreshStatus;
-        App.Log.CollectionChanged += OnLogChanged;
         RefreshStatus();
         ShowPage();
+        Dbg.Log($"MainWindow: restored page={Nav.SelectedIndex} navOpen={_navOpen}");
         Closed += (_, _) =>
         {
             App.Bus.StateChanged -= RefreshStatus;
-            App.Log.CollectionChanged -= OnLogChanged;
         };
     }
 
-    private void Nav_SelectionChanged(object sender, SelectionChangedEventArgs e) => ShowPage();
-
-    private bool _navOpen = true;
-    private bool _connectionBusy;
+    private void Nav_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_windowReady) return;
+        App.Settings.LastPage = Math.Clamp(Nav.SelectedIndex, 0, 3);
+        App.Settings.Save();
+        Dbg.Log($"MainWindow.Nav_SelectionChanged: page={App.Settings.LastPage}");
+        ShowPage();
+    }
 
     private void BtnNavToggle_Click(object sender, RoutedEventArgs e)
     {
         _navOpen = !_navOpen;
+        ApplyNavState();
+        App.Settings.NavOpen = _navOpen;
+        App.Settings.Save();
+        Dbg.Log($"MainWindow.BtnNavToggle_Click: navOpen={_navOpen}");
+    }
+
+    private void ApplyNavState()
+    {
         NavCol.Width = _navOpen ? new GridLength(204) : new GridLength(0);
         Nav.Visibility = _navOpen ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -95,11 +112,10 @@ public partial class MainWindow : FluentWindow
             var (count, ret) = await App.Bus.ConnectAsync(
                 App.Settings.Channel, App.Settings.ClockHz, (byte)App.Settings.ControlMode);
             Dbg.Log($"MainWindow.BtnWorkspaceConnect_Click: count={count} ret={ret}");
-            if (count <= 0)
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", ret, 0, null));
-            else if (ret != 0)
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", ret, 0,
-                    System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(ret))));
+            int logRet = count <= 0 ? (count == 0 ? -15 : count) : ret;
+            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器",
+                $"通道{App.Settings.Channel}", logRet, 0,
+                logRet == 0 ? null : System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(logRet))));
         }
         catch (Exception ex)
         {
@@ -132,21 +148,4 @@ public partial class MainWindow : FluentWindow
         finally { SetConnectionBusy(false); }
     }
 
-    private void OnLogChanged(object? sender, NotifyCollectionChangedEventArgs e)
-    {
-        if (e.Action == NotifyCollectionChangedAction.Reset)
-        {
-            Dispatcher.Invoke(() => StatusFooter.Visibility = Visibility.Collapsed);
-            return;
-        }
-        if (e.Action != NotifyCollectionChangedAction.Add || e.NewItems is not { Count: > 0 }) return;
-        var last = (LogEntry)e.NewItems[^1]!;
-        Dispatcher.Invoke(() =>
-        {
-            StatusFooter.Visibility = Visibility.Visible;
-            TxtLastTx.Text = last.Ret == 0
-                ? $"最近事务：{last.Op} {last.Addr} · {last.Ms:F1} ms"
-                : $"最近事务：{last.Op} {last.Addr} · 失败 ({last.Ret})";
-        });
-    }
 }

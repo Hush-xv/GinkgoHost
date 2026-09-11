@@ -16,11 +16,31 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <!-- 扩展表格保持整行选中提示，避免单元格默认色遮挡当前操作行。 -->
+        <Style x:Key="ExtDataGridRowStyle" TargetType="DataGridRow">
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="#443B2F7A" />
+                    <Setter Property="BorderBrush" Value="#9A86FD" />
+                    <Setter Property="BorderThickness" Value="1" />
+                    <Setter Property="Foreground" Value="White" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="ExtDataGridCellStyle" TargetType="DataGridCell">
+            <Setter Property="BorderThickness" Value="0" />
+            <Style.Triggers>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="Foreground" Value="White" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
 
     <DockPanel>
         <!-- ═══ 总线设置条 ═══ -->
-        <Border DockPanel.Dock="Top" Margin="8,0,8,8" CornerRadius="6" Padding="14,8"
+        <Border DockPanel.Dock="Top" Margin="8,0,8,8" CornerRadius="6" Padding="12,6"
                 Background="{DynamicResource ControlFillColorSecondaryBrush}"
                 BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
             <DockPanel LastChildFill="True">
@@ -90,9 +110,9 @@
 
                     <ui:Card Margin="0,0,0,10">
                         <WrapPanel Margin="4">
-                            <TextBlock Text="从机地址" VerticalAlignment="Center" Opacity="0.75"
-                                       ToolTip="7 位地址（hex），如 8 位标注的 0x92 请填 49" />
-                            <ui:TextBox x:Name="TxtSlave" Text="49" Width="64" MaxLength="4" Margin="8,0,16,0" />
+                            <TextBlock x:Name="TxtExtSlaveLabel" Text="从机地址 · 7-bit" VerticalAlignment="Center" Opacity="0.75" />
+                            <ui:TextBox x:Name="TxtSlave" Text="49" Width="64" MaxLength="2" Margin="8,0,16,0"
+                                        TextChanged="TxtSlave_TextChanged" />
                             <TextBlock Text="寄存器地址宽度" VerticalAlignment="Center" Opacity="0.75" />
                             <ComboBox x:Name="CmbRegWidth" SelectedIndex="0" MinWidth="100" Margin="8,0,16,0">
                                 <ComboBoxItem Content="Reg 8Bit" Tag="1" />
@@ -101,7 +121,8 @@
                         </WrapPanel>
                     </ui:Card>
 
-                    <WrapPanel Grid.Row="1" Margin="4,0,0,6">
+                    <StackPanel Grid.Row="1" Margin="4,0,0,6">
+                    <WrapPanel>
                         <ui:Button x:Name="BtnSubReg" Content="寄存器表" Appearance="Primary"
                                    Click="BtnSubReg_Click" MinWidth="96" Margin="0,0,6,6" />
                         <ui:Button x:Name="BtnSubInit" Content="初始化序列"
@@ -112,6 +133,8 @@
                         <ui:Button x:Name="BtnLoad" Content="载入" Click="BtnLoad_Click" MinWidth="64" Margin="0,0,6,6" />
                         <ui:Button x:Name="BtnDelete" Content="删除" Click="BtnDelete_Click" MinWidth="64" Margin="0,0,0,6" />
                     </WrapPanel>
+                    <TextBlock x:Name="TxtExtStatus" FontSize="12" Opacity="0.68" Margin="0,0,0,4" />
+                    </StackPanel>
 
                     <Grid Grid.Row="2">
                         <!-- 寄存器表 -->
@@ -126,19 +149,25 @@
                                            IsEnabled="False" Margin="8,0,12,0" />
                                 <ui:Button x:Name="BtnReadAll" Content="一键读取全部" Appearance="Primary"
                                            Click="BtnReadAll_Click" MinWidth="110" DockPanel.Dock="Right" />
+                                <ui:Button x:Name="BtnStopPolling" Content="停止轮询" Appearance="Danger"
+                                           Click="BtnStopPolling_Click" MinWidth="92" Margin="0,0,8,0"
+                                           DockPanel.Dock="Right" Visibility="Collapsed" />
                             </DockPanel>
-                            <DataGrid x:Name="GridReg" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False"
+                            <Grid Grid.Row="1">
+                            <DataGrid x:Name="GridReg" AutoGenerateColumns="False" CanUserAddRows="False"
                                       HeadersVisibility="Column" MinHeight="200"
                                       SelectionChanged="GridReg_SelectionChanged"
+                                      SelectionUnit="FullRow" RowStyle="{StaticResource ExtDataGridRowStyle}"
+                                      CellStyle="{StaticResource ExtDataGridCellStyle}"
                                       RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
                                       FontFamily="Consolas" FontSize="12"
                                       ScrollViewer.HorizontalScrollBarVisibility="Auto">
                                 <DataGrid.Columns>
-                                <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="76" />
-                                <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="50" />
-                                <DataGridTextColumn Header="周期ms" Binding="{Binding PeriodMs}" Width="64" />
-                                <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="120" />
-                                    <DataGridTemplateColumn Header="读写" Width="70">
+                                <DataGridTextColumn Header="Reg" Binding="{Binding Reg}" Width="60" />
+                                <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="44" />
+                                <DataGridTextColumn Header="周期" Binding="{Binding PeriodMs}" Width="56" />
+                                <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="*" MinWidth="88" />
+                                    <DataGridTemplateColumn Header="读写" Width="56">
                                         <DataGridTemplateColumn.CellTemplate>
                                             <DataTemplate>
                                             <ComboBox SelectedIndex="{Binding Dir, Converter={StaticResource DirIndex}, Mode=TwoWay}" FontSize="12">
@@ -148,18 +177,22 @@
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
-                                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="60"
+                                    <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="50"
                                                         ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
-                                    <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="110" />
-                                <DataGridTemplateColumn Header="执行" Width="70">
+                                <DataGridTemplateColumn Header="执行" Width="60">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
-                                            <Button Content="执行" Click="BtnRowExec_Click" Width="56" Padding="2" Margin="2" />
+                                            <Button Content="执行" Click="BtnRowExec_Click" Width="56" Padding="2" Margin="2"
+                                                    IsEnabled="{Binding CanExecuteExtended, RelativeSource={RelativeSource AncestorType={x:Type views:I2cPage}}}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
                                 </DataGrid.Columns>
                             </DataGrid>
+                            <TextBlock x:Name="TxtRegEmpty" Text="尚无寄存器项 · 点击“添加行”开始配置"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.55"
+                                       IsHitTestVisible="False" Visibility="Collapsed" />
+                            </Grid>
                         </Grid>
 
                         <!-- 初始化序列 -->
@@ -175,17 +208,20 @@
                                 <ui:Button x:Name="BtnRunInit" Content="一键初始化" Appearance="Primary"
                                            Click="BtnRunInit_Click" MinWidth="110" DockPanel.Dock="Right" />
                             </DockPanel>
-                            <DataGrid x:Name="GridInit" Grid.Row="1" AutoGenerateColumns="False" CanUserAddRows="False"
+                            <Grid Grid.Row="1">
+                            <DataGrid x:Name="GridInit" AutoGenerateColumns="False" CanUserAddRows="False"
                                       HeadersVisibility="Column" MinHeight="200"
                                       SelectionChanged="GridInit_SelectionChanged"
+                                      SelectionUnit="FullRow" RowStyle="{StaticResource ExtDataGridRowStyle}"
+                                      CellStyle="{StaticResource ExtDataGridCellStyle}"
                                       RowBackground="Transparent" AlternatingRowBackground="#0AFFFFFF"
                                       FontFamily="Consolas" FontSize="12">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="延时ms" Binding="{Binding DelayMs}" Width="64" />
-                                <DataGridTextColumn Header="Reg地址" Binding="{Binding Reg}" Width="76" />
-                                <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="50" />
-                                <DataGridTextColumn Header="数据" Binding="{Binding Value}" Width="110" />
-                                <DataGridTemplateColumn Header="读写" Width="70">
+                                <DataGridTextColumn Header="延时" Binding="{Binding DelayMs}" Width="56" />
+                                <DataGridTextColumn Header="Reg" Binding="{Binding Reg}" Width="60" />
+                                <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="44" />
+                                <DataGridTextColumn Header="数据" Binding="{Binding Value}" Width="*" MinWidth="88" />
+                                <DataGridTemplateColumn Header="读写" Width="56">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <ComboBox SelectedIndex="{Binding Dir, Converter={StaticResource DirIndex}, Mode=TwoWay}" FontSize="12">
@@ -195,18 +231,22 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="60"
+                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="50"
                                                     ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
-                                <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="110" />
-                                <DataGridTemplateColumn Header="执行" Width="70">
+                                <DataGridTemplateColumn Header="执行" Width="60">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
-                                            <Button Content="执行" Click="BtnInitRowExec_Click" Width="56" Padding="2" Margin="2" />
+                                            <Button Content="执行" Click="BtnInitRowExec_Click" Width="56" Padding="2" Margin="2"
+                                                    IsEnabled="{Binding CanExecuteExtended, RelativeSource={RelativeSource AncestorType={x:Type views:I2cPage}}}" />
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
                             </DataGrid.Columns>
                             </DataGrid>
+                            <TextBlock x:Name="TxtInitEmpty" Text="尚无初始化步骤 · 添加行后可保存为 Profile"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.55"
+                                       IsHitTestVisible="False" Visibility="Collapsed" />
+                            </Grid>
                         </Grid>
 
                     </Grid>
@@ -238,7 +278,7 @@
                               ToolTip="上下拖动调整区域 · 双击复位" />
 
                 <!-- 数据操作：目标参数 | 命令编辑器 | 读取结果 -->
-                <ui:Card Grid.Row="2" Margin="0,8,0,0" Padding="10,8">
+                <ui:Card x:Name="DataOperationsCard" Grid.Row="2" Margin="0,8,0,0" Padding="10,7">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -250,12 +290,14 @@
                         <TextBlock Text="数据操作" FontWeight="SemiBold" Margin="0,0,0,7" />
 
                         <!-- 单行参数工具栏；空间不足时控件自动换行 -->
-                        <WrapPanel Grid.Row="1" Margin="0,0,0,6">
+                        <WrapPanel Grid.Row="1" Margin="0,0,0,6"
+                                   UseLayoutRounding="True" SnapsToDevicePixels="True">
                             <StackPanel Width="104" Margin="0,0,10,6">
                                 <TextBlock Text="从机地址" Style="{StaticResource FieldLabelStyle}"
                                            ToolTip="7 位地址（hex），如 8 位标注的 0x92 请填 49" />
                                 <ui:TextBox x:Name="TxtAddr" FontFamily="Consolas"
-                                            TextChanged="TxtAddr_TextChanged" />
+                                            TextChanged="TxtAddr_TextChanged"
+                                            LostFocus="TargetInput_LostFocus" />
                             </StackPanel>
                             <StackPanel Width="94" Margin="0,0,10,6">
                                 <TextBlock Text="地址格式" Style="{StaticResource FieldLabelStyle}" />
@@ -269,10 +311,11 @@
                                 <TextBlock Text="寄存器地址 · 0x" Style="{StaticResource FieldLabelStyle}"
                                            ToolTip="寄存器号（子地址）。留空 = 原始读写" />
                                 <ui:TextBox x:Name="TxtSubAddr" Text="00" MaxLength="2" FontFamily="Consolas"
-                                            TextChanged="TxtSubAddr_TextChanged" />
+                                            TextChanged="TxtSubAddr_TextChanged"
+                                            LostFocus="TargetInput_LostFocus" />
                             </StackPanel>
                             <ui:Button x:Name="BtnScanBus" Content="扫描总线" Click="BtnScan_Click" IsEnabled="False"
-                                       MinWidth="96" Margin="0,19,0,6" VerticalAlignment="Top"
+                                       Width="96" Margin="0,19,0,6" VerticalAlignment="Top"
                                        ToolTip="扫描当前通道上的从机地址 (F5)" />
 
                             <Border Width="1" Height="34" Margin="14,19,14,6"
@@ -287,14 +330,14 @@
                                 <TextBlock Text="读取长度" Style="{StaticResource FieldLabelStyle}"
                                            VerticalAlignment="Center" Margin="0,0,6,0" />
                                 <ui:TextBox x:Name="TxtReadSize" Text="8" Width="64" Margin="0,0,12,0"
-                                            TextChanged="TxtReadSize_TextChanged" />
+                                            TextChanged="TxtReadSize_TextChanged" LostFocus="DataInput_LostFocus" />
                                 <CheckBox x:Name="ChkWriteRead" Content="写后读取"
                                           VerticalAlignment="Center" Margin="0,0,14,0" />
                                 <ui:Button x:Name="BtnRead" Content="读取" Click="BtnRead_Click" IsEnabled="False"
-                                           MinWidth="72" Margin="0,0,6,0"
+                                           Width="72" Margin="0,0,6,0"
                                            ToolTip="读取数据 (Ctrl+R)" />
                                 <ui:Button x:Name="BtnWrite" Content="写入" Appearance="Primary" IsEnabled="False"
-                                           Click="BtnWrite_Click" MinWidth="72"
+                                           Click="BtnWrite_Click" Width="72"
                                            ToolTip="写入数据 (Ctrl+W)" />
                                 </WrapPanel>
                             </Border>
@@ -304,10 +347,11 @@
                                     FontFamily="Consolas" FontSize="14" AcceptsReturn="True"
                                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                     VerticalContentAlignment="Top" TextChanged="TxtDataBuffer_TextChanged"
+                                    LostFocus="DataInput_LostFocus"
                                     PlaceholderText="输入待写数据；读取结果会显示在这里" />
 
                         <DockPanel Grid.Row="3" Margin="2,5,0,0">
-                            <TextBlock x:Name="TxtBufferMeta" Text="4 字节" DockPanel.Dock="Right"
+                            <TextBlock x:Name="TxtBufferMeta" Text="4 字节 · 待写数据" DockPanel.Dock="Right"
                                        FontSize="11" Opacity="0.5" />
                             <TextBlock x:Name="TxtDataStatus" Text="输入数据后写入，或直接读取"
                                        FontSize="11" Opacity="0.65" TextTrimming="CharacterEllipsis" />

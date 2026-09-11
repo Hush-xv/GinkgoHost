@@ -12,7 +12,6 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid Grid.Row="0">
             <Grid.ColumnDefinitions>
@@ -100,12 +99,5 @@
             </Border>
             <ContentControl x:Name="PageHost" Grid.Column="1" Margin="8,0,14,10" />
         </Grid>
-
-        <Border x:Name="StatusFooter" Grid.Row="2" Padding="16,7" BorderThickness="0,1,0,0"
-                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
-                Background="{DynamicResource ControlFillColorSecondaryBrush}" Visibility="Collapsed">
-            <TextBlock x:Name="TxtLastTx" HorizontalAlignment="Right"
-                       Opacity="0.6" VerticalAlignment="Center" />
-        </Border>
     </Grid>
 </ui:FluentWindow>

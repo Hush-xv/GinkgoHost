@@ -17,6 +17,7 @@ public partial class ConsolePage : UserControl
     private readonly List<string> _history = new();
     private int _historyIdx;
     private bool _executing;
+    private CancellationTokenSource? _readLoopCts;
 
     private static readonly Brush Cyan = new SolidColorBrush(Color.FromRgb(0x90, 0xca, 0xf9));
     private static readonly Brush Purple = new SolidColorBrush(Color.FromRgb(0x9a, 0x86, 0xfd));
@@ -29,6 +30,17 @@ public partial class ConsolePage : UserControl
         InitializeComponent();
         LstOut.ItemsSource = _out;
         Print("GinkgoHost 控制台。输入 help 查看命令。", Gray);
+        TxtIn.GotKeyboardFocus += (_, _) => UpdateCommandHint();
+        Loaded += (_, _) =>
+        {
+            App.Bus.StateChanged += OnBusStateChanged;
+            UpdateCommandHint();
+        };
+        Unloaded += (_, _) =>
+        {
+            App.Bus.StateChanged -= OnBusStateChanged;
+            StopReadLoop(false);
+        };
     }
 
     private void Print(string text, Brush brush)
@@ -44,6 +56,16 @@ public partial class ConsolePage : UserControl
         _out.Clear();
         Print("输出已清空。输入 help 查看命令。", Gray);
         TxtIn.Focus();
+    }
+
+    private void OnBusStateChanged()
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(OnBusStateChanged);
+            return;
+        }
+        if (!App.Bus.IsOpen) StopReadLoop(false);
     }
 
     private async void TxtIn_KeyDown(object sender, KeyEventArgs e)
@@ -68,7 +90,15 @@ public partial class ConsolePage : UserControl
             return;
         }
         if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        await RunInputAsync();
+    }
 
+    private async void BtnRun_Click(object sender, RoutedEventArgs e) => await RunInputAsync();
+
+    private async Task RunInputAsync()
+    {
+        if (_executing) return;
         string line = TxtIn.Text;
         TxtIn.Clear();
         if (string.IsNullOrWhiteSpace(line)) return;
@@ -79,12 +109,14 @@ public partial class ConsolePage : UserControl
         var (cmd, err) = CommandParser.Parse(line);
         if (cmd is null)
         {
-            Print(err ?? "解析失败", Red);
+            Print($"{err ?? "解析失败"} · {CommandExample()}", Red);
             return;
         }
         _executing = true;
         TxtIn.IsEnabled = false;
+        BtnRun.IsEnabled = false;
         TxtConsoleState.Text = "执行中…";
+        TxtConsoleState.Foreground = Orange;
         Dbg.Log($"ConsolePage.TxtIn_KeyDown: execute {cmd.GetType().Name}");
         try
         {
@@ -98,7 +130,9 @@ public partial class ConsolePage : UserControl
         {
             _executing = false;
             TxtIn.IsEnabled = true;
+            BtnRun.IsEnabled = true;
             TxtConsoleState.Text = "就绪";
+            TxtConsoleState.Foreground = Gray;
             TxtIn.Focus();
             Dbg.Log($"ConsolePage.TxtIn_KeyDown: completed {cmd.GetType().Name}");
         }
@@ -109,19 +143,41 @@ public partial class ConsolePage : UserControl
         switch (cmd)
         {
             case HelpCmd:
+            {
                 Print("connect                       连接适配器", Gray);
                 Print("disconnect                    断开适配器", Gray);
                 Print("adapters                      列出适配器数量", Gray);
+                Print("status                        显示当前连接状态", Gray);
+                Print("config                        显示当前 I²C 配置", Gray);
                 Print("speed <kHz>                   修改速率，如 speed 400", Gray);
-                Print("scan                          扫描从机地址 0x08–0x77", Gray);
-                Print("read <addr7> [reg] <len>      读，如 read 50 8 或 read 50 00 8", Gray);
-                Print("write <addr7> [reg] <b...>    写，如 write 50 de ad 或 write 50 00 de ad", Gray);
+                string addressFormat = App.Settings.AddrFmt == 1 ? "8-bit" : "7-bit";
+                string exampleAddress = App.Settings.AddrFmt == 1 ? "92" : "49";
+                Print($"scan                          扫描从机地址（当前 {addressFormat} 显示）", Gray);
+                Print($"read <addr> [reg] <len>       读，如 read {exampleAddress} 00 8", Gray);
+                Print($"write <addr> [reg] <b...>     写，如 write {exampleAddress} 00 de ad", Gray);
+                Print($"readloop <addr> [reg] <len> <ms>  周期读，如 readloop {exampleAddress} 00 8 500", Gray);
+                Print("stop                          停止周期读", Gray);
                 Print("clear                         清屏", Gray);
                 break;
+            }
 
             case ClearCmd:
                 _out.Clear();
                 break;
+
+            case StatusCmd:
+                Print(App.Bus.IsOpen
+                    ? $"已连接 · 通道 {App.Bus.Channel} · {App.Bus.ClockHz / 1000} kHz"
+                    : "未连接适配器", App.Bus.IsOpen ? Purple : Orange);
+                break;
+
+            case ConfigCmd:
+            {
+                string mode = App.Settings.ControlMode == GinkgoDriver.VII_SCTL_MODE ? "软件 I²C" : "硬件 I²C";
+                string addressFormat = App.Settings.AddrFmt == 1 ? "8-bit" : "7-bit";
+                Print($"配置 · {mode} · 通道 {App.Settings.Channel} · {App.Settings.ClockHz / 1000} kHz · {addressFormat} 地址", Gray);
+                break;
+            }
 
             case ConnectCmd:
             {
@@ -131,7 +187,8 @@ public partial class ConsolePage : UserControl
                     ? "未检测到 Ginkgo 适配器"
                     : ret == 0
                         ? $"已连接 · 通道 {App.Settings.Channel} · {App.Settings.ClockHz / 1000} kHz"
-                        : $"打开失败：{GinkgoDriver.ErrorName(ret)}", ret == 0 ? Purple : Red);
+                        : $"打开失败：{GinkgoDriver.ErrorName(ret)}",
+                    count <= 0 ? Orange : ret == 0 ? Purple : Red);
                 break;
             }
 
@@ -159,31 +216,111 @@ public partial class ConsolePage : UserControl
                 var found = await App.Bus.ScanBusAsync();
                 Print(found.Count == 0
                     ? "总线空闲，未发现从机"
-                    : "命中：" + string.Join("  ", found.Select(a => $"0x{a:X2}")), Purple);
+                    : "命中：" + string.Join("  ", found.Select(I2cPage.DisplayAddress)),
+                    found.Count == 0 ? Orange : Purple);
                 break;
             }
 
             case ReadCmd r:
             {
+                byte address = ConsoleAddr7(r.Addr);
                 var res = r.Reg is byte reg
-                    ? await App.Bus.ReadRegisterAsync(r.Addr, reg, r.Len)
-                    : await App.Bus.RawReadAsync(r.Addr, r.Len);
+                    ? await App.Bus.ReadRegisterAsync(address, reg, r.Len)
+                    : await App.Bus.RawReadAsync(address, r.Len);
+                AddConsoleTransaction("RX", "控制台读", address, res);
                 Print(res.Ok
-                    ? $"RX 0x{r.Addr:X2} len={r.Len}  {I2cPage.Grouped(res.Data!)}  [{res.Ms:F1} ms]"
+                    ? $"RX {I2cPage.DisplayAddress(address)} len={r.Len}  {I2cPage.Grouped(res.Data!)}  [{res.Ms:F1} ms]"
                     : $"读取失败：{GinkgoDriver.ErrorName(res.Ret)}", res.Ok ? Purple : Red);
                 break;
             }
 
             case WriteCmd w:
             {
+                byte address = ConsoleAddr7(w.Addr);
                 var res = w.Reg is byte reg
-                    ? await App.Bus.WriteRegisterAsync(w.Addr, reg, w.Data)
-                    : await App.Bus.RawWriteAsync(w.Addr, w.Data);
+                    ? await App.Bus.WriteRegisterAsync(address, reg, w.Data)
+                    : await App.Bus.RawWriteAsync(address, w.Data);
+                AddConsoleTransaction("TX", "控制台写", address, res, w.Data);
                 Print(res.Ok
-                    ? $"TX 0x{w.Addr:X2} len={w.Data.Length}  {I2cPage.Grouped(w.Data)}  [{res.Ms:F1} ms]"
+                    ? $"TX {I2cPage.DisplayAddress(address)} len={w.Data.Length}  {I2cPage.Grouped(w.Data)}  [{res.Ms:F1} ms]"
                     : $"写入失败：{GinkgoDriver.ErrorName(res.Ret)}", res.Ok ? Orange : Red);
                 break;
             }
+
+            case ReadLoopCmd loop:
+                if (_readLoopCts is not null)
+                {
+                    Print("已有周期读正在运行；输入 stop 后再启动新的周期读", Orange);
+                    break;
+                }
+                _readLoopCts = new CancellationTokenSource();
+                _ = RunReadLoopAsync(loop, _readLoopCts);
+                Print($"周期读已启动 · {I2cPage.DisplayAddress(ConsoleAddr7(loop.Addr))} · {loop.PeriodMs} ms · 输入 stop 停止", Purple);
+                break;
+
+            case StopCmd:
+                StopReadLoop(true);
+                break;
         }
     }
+
+    private async Task RunReadLoopAsync(ReadLoopCmd loop, CancellationTokenSource cts)
+    {
+        byte address = ConsoleAddr7(loop.Addr);
+        Dbg.Log($"ConsolePage.RunReadLoopAsync: start addr={I2cPage.DisplayAddress(address)} len={loop.Len} periodMs={loop.PeriodMs}");
+        try
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                var res = loop.Reg is byte reg
+                    ? await App.Bus.ReadRegisterAsync(address, reg, loop.Len)
+                    : await App.Bus.RawReadAsync(address, loop.Len);
+                AddConsoleTransaction("RX", "控制台周期读", address, res);
+                Print(res.Ok
+                    ? $"RX {I2cPage.DisplayAddress(address)} len={loop.Len}  {I2cPage.Grouped(res.Data!)}  [{res.Ms:F1} ms]"
+                    : $"周期读失败：{GinkgoDriver.ErrorName(res.Ret)}", res.Ok ? Purple : Red);
+                await Task.Delay(loop.PeriodMs, cts.Token);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Print($"周期读已中断：{ex.Message}", Red);
+            Dbg.Log($"ConsolePage.RunReadLoopAsync: failed={ex.Message}");
+        }
+        finally
+        {
+            if (ReferenceEquals(_readLoopCts, cts)) _readLoopCts = null;
+            cts.Dispose();
+            Print("周期读已停止", Gray);
+            Dbg.Log("ConsolePage.RunReadLoopAsync: stopped");
+        }
+    }
+
+    private void StopReadLoop(bool announce)
+    {
+        if (_readLoopCts is null)
+        {
+            if (announce) Print("没有正在运行的周期读", Orange);
+            return;
+        }
+        _readLoopCts.Cancel();
+        if (announce) Print("正在停止周期读…", Gray);
+    }
+
+    /// <summary>控制台输入跟随全局地址格式，底层驱动始终接收 7-bit 地址。</summary>
+    private static byte ConsoleAddr7(byte address) =>
+        App.Settings.AddrFmt == 1 ? (byte)(address >> 1) : address;
+
+    private void UpdateCommandHint() => TxtIn.PlaceholderText = $"输入命令，例如：{CommandExample()}";
+
+    private static string CommandExample()
+    {
+        string address = App.Settings.AddrFmt == 1 ? "92" : "49";
+        return $"read {address} 00 8";
+    }
+
+    private static void AddConsoleTransaction(string direction, string operation, byte address, OpResult result, byte[]? writeData = null) =>
+        App.Log.AddCapped(new LogEntry(DateTime.Now, direction, operation, I2cPage.DisplayAddress(address), result.Ret, result.Ms,
+            direction == "TX" ? writeData : result.Data));
 }

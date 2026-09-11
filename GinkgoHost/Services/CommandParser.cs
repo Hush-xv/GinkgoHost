@@ -11,10 +11,15 @@ public sealed record ScanAdapterCmd : Cmd;
 public sealed record ScanBusCmd : Cmd;
 public sealed record ClearCmd : Cmd;
 public sealed record HelpCmd : Cmd;
+public sealed record StatusCmd : Cmd;
+public sealed record ConfigCmd : Cmd;
 /// <summary>read 50 8 | read 50 00 8（Addr 7 位 hex，Reg 可选 hex，Len 十进制 1–256）。</summary>
 public sealed record ReadCmd(byte Addr, byte? Reg, int Len) : Cmd;
 /// <summary>write 50 de ad | write 50 00 de ad（Reg 可选）。</summary>
 public sealed record WriteCmd(byte Addr, byte? Reg, byte[] Data) : Cmd;
+/// <summary>readloop 50 8 500 | readloop 50 00 8 500（最后一项是周期 ms）。</summary>
+public sealed record ReadLoopCmd(byte Addr, byte? Reg, int Len, int PeriodMs) : Cmd;
+public sealed record StopCmd : Cmd;
 
 /// <summary>
 /// 控制台命令解析（纯函数，可独立测试）。
@@ -33,6 +38,8 @@ public static class CommandParser
             {
                 "help" or "?" => (new HelpCmd(), null),
                 "clear" or "cls" => (new ClearCmd(), null),
+                "status" => (new StatusCmd(), null),
+                "config" => (new ConfigCmd(), null),
                 "connect" => (new ConnectCmd(), null),
                 "disconnect" => (new DisconnectCmd(), null),
                 "scan" => (new ScanBusCmd(), null),
@@ -40,6 +47,8 @@ public static class CommandParser
                 "speed" => ParseSpeed(t),
                 "read" => ParseRead(t),
                 "write" => ParseWrite(t),
+                "readloop" or "rloop" => ParseReadLoop(t),
+                "stop" => (new StopCmd(), null),
                 _ => (null, $"未知命令 “{t[0]}”，输入 help 查看用法")
             };
         }
@@ -83,5 +92,19 @@ public static class CommandParser
         return t.Length > 3
             ? (new WriteCmd(addr, HexByte(t[2]), data), null)
             : (new WriteCmd(addr, null, data), null);
+    }
+
+    private static (Cmd?, string?) ParseReadLoop(string[] t)
+    {
+        if (t.Length is not 4 and not 5)
+            return (null, "用法：readloop <addr> [reg] <len> <ms>");
+        byte addr = HexByte(t[1]);
+        int len = int.Parse(t[^2], CultureInfo.InvariantCulture);
+        int periodMs = int.Parse(t[^1], CultureInfo.InvariantCulture);
+        if (len is < 1 or > 256) return (null, "长度须在 1–256 之间");
+        if (periodMs is < 50 or > 60_000) return (null, "周期须在 50–60000 ms 之间");
+        return t.Length == 5
+            ? (new ReadLoopCmd(addr, HexByte(t[2]), len, periodMs), null)
+            : (new ReadLoopCmd(addr, null, len, periodMs), null);
     }
 }

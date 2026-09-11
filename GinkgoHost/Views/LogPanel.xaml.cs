@@ -25,13 +25,23 @@ public partial class LogPanel : UserControl
         _log = log;
         Lst.ItemsSource = log;
         log.CollectionChanged += OnLogChanged;
+        UpdateLogPresentation();
     }
 
     private void OnLogChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         TxtCount.Text = $"{_log.Count} 条";
+        UpdateLogPresentation();
         if (_followLatest && e.Action == NotifyCollectionChangedAction.Add && Lst.Items.Count > 0)
             Lst.ScrollIntoView(Lst.Items[^1]); // 跟随最新记录
+    }
+
+    /// <summary>空日志只占紧凑引导高度，出现记录后再展开为完整工作区。</summary>
+    private void UpdateLogPresentation()
+    {
+        bool empty = _log.Count == 0;
+        LogFrame.Height = empty ? 190 : double.NaN;
+        LogFrame.VerticalAlignment = empty ? VerticalAlignment.Top : VerticalAlignment.Stretch;
     }
 
     private void Lst_DoubleClick(object sender, MouseButtonEventArgs e)
@@ -39,6 +49,12 @@ public partial class LogPanel : UserControl
         if (Lst.SelectedItem is not LogEntry { Data: { Length: > 0 } } le) return;
         Clipboard.SetText(le.HexGrouped);
         TxtFeedback.Text = "已复制";
+    }
+
+    private void Lst_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (Lst.SelectedItem is not LogEntry entry) return;
+        TxtFeedback.Text = entry.Data is { Length: > 0 } ? "已选中 · 双击复制数据" : "已选中";
     }
 
     private void ChkFollow_Changed(object sender, RoutedEventArgs e)

@@ -12,6 +12,11 @@ public static class ProfileService
 {
     public sealed record Profile(string Name, List<RegRow> RegTable, List<RegRow> InitSequence);
 
+    public static bool IsValidName(string name) =>
+        !string.IsNullOrWhiteSpace(name) && name is not "." and not ".." &&
+        name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0 &&
+        !name.Contains(Path.DirectorySeparatorChar) && !name.Contains(Path.AltDirectorySeparatorChar);
+
     private static string Dir()
     {
         string d = Path.Combine(

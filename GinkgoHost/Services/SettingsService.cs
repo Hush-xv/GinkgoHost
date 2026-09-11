@@ -15,6 +15,8 @@ public sealed class SettingsService
     public int ControlMode { get; set; } = 1; // 1=硬件 I2C 2=软件 I2C（GPIO）
     public double ExtPanelWidth { get; set; } = 480;
     public double LogPanelRatio { get; set; } = 0.65;
+    public int LastPage { get; set; } = 1;
+    public bool NavOpen { get; set; } = true;
 
     private static string FilePath()
     {

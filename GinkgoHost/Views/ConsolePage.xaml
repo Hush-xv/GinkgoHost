@@ -12,18 +12,22 @@
                 <TextBlock Text="控制台" Style="{StaticResource PageTitleStyle}" />
                 <TextBlock Style="{StaticResource PageSubtitleStyle}"
                            Text="输入 help 查看帮助 · 使用 ↑/↓ 浏览历史记录" />
+                <TextBlock Text="常用：status · scan · read 50 00 8 · readloop 50 00 8 500"
+                           FontFamily="Consolas" FontSize="11" Opacity="0.58" Margin="0,5,0,0" />
             </StackPanel>
             <ui:Button Grid.Column="1" Content="清空输出" Click="BtnClearOutput_Click"
                        VerticalAlignment="Top" Margin="0,4,0,0" />
         </Grid>
         <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+            <ui:Button x:Name="BtnRun" Content="运行" Appearance="Primary" Click="BtnRun_Click"
+                       DockPanel.Dock="Right" MinWidth="72" Margin="8,0,0,0" />
             <TextBlock x:Name="TxtConsoleState" Text="就绪" DockPanel.Dock="Right"
                        VerticalAlignment="Center" Margin="12,0,0,0"
                        FontSize="11" Opacity="0.55" />
             <TextBlock Text="&gt;" FontFamily="Consolas" VerticalAlignment="Center" Margin="0,0,6,0"
                        Foreground="#9a86fd" />
             <ui:TextBox x:Name="TxtIn" FontFamily="Consolas" KeyDown="TxtIn_KeyDown"
-                        PlaceholderText="输入命令，回车执行" />
+                        PlaceholderText="输入命令，例如：read 50 00 8" />
         </DockPanel>
         <ListBox x:Name="LstOut" FontFamily="Consolas" FontSize="13"
                  Background="{DynamicResource ControlFillColorSecondaryBrush}"
@@ -31,7 +35,9 @@
                  BorderThickness="1" Padding="12">
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <TextBlock Text="{Binding Line}" Foreground="{Binding Brush}" TextWrapping="Wrap" />
+                    <Border BorderBrush="{Binding Brush}" BorderThickness="2,0,0,0" Padding="8,3" Margin="0,1">
+                        <TextBlock Text="{Binding Line}" Foreground="{Binding Brush}" TextWrapping="Wrap" />
+                    </Border>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>

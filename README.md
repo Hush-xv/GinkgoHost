@@ -77,6 +77,8 @@ bin\Debug\net8.0-windows\GinkgoHost.exe
 | `scan` | 扫描从机 0x08–0x77 | |
 | `read <addr7> [reg] <len>` | 寄存器/原始读 | `read 49 00 8` |
 | `write <addr7> [reg] <b...>` | 写，最多 16 字节 | `write 49 00 de ad` |
+| `readloop <addr7> [reg] <len> <ms>` | 周期读，`stop` 停止 | `readloop 49 00 8 200` |
+| `status` / `config` | 查看状态/配置 | |
 
 </div>
 

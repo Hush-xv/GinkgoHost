@@ -75,7 +75,7 @@
             </StackPanel>
         </DockPanel>
 
-        <Border CornerRadius="6" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+        <Border x:Name="LogFrame" CornerRadius="6" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
                 BorderThickness="1" Background="{DynamicResource ControlFillColorSecondaryBrush}">
             <Grid>
                 <Grid.RowDefinitions>
@@ -107,7 +107,8 @@
 
                 <ListBox x:Name="Lst" Grid.Row="1" FontSize="13" BorderThickness="0" Background="Transparent"
                          AlternationCount="2" ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                         PreviewMouseDoubleClick="Lst_DoubleClick" ToolTip="双击事务行复制数据">
+                         SelectionChanged="Lst_SelectionChanged"
+                         PreviewMouseDoubleClick="Lst_DoubleClick" ToolTip="单击查看记录；双击复制数据">
                     <ListBox.ItemContainerStyle>
                         <Style TargetType="ListBoxItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -161,9 +162,9 @@
                 </ListBox>
 
                 <!-- 空态提示 -->
-                <TextBlock Grid.Row="1" Text="暂无事务记录 —— 扫描或读写后这里会实时滚动"
+                <TextBlock Grid.Row="1" Text="暂无事务记录&#x0a;连接适配器后，可从“扫描总线”或“读取”开始"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
-                           Opacity="0.35" IsHitTestVisible="False">
+                           Opacity="0.42" TextAlignment="Center" LineHeight="22" IsHitTestVisible="False">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock">
                             <Setter Property="Visibility" Value="Collapsed" />
