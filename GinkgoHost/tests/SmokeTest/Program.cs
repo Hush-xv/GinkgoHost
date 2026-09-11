@@ -1,10 +1,100 @@
 // 无硬件冒烟测试：验证 DLL 可加载、入口点可调用、调用约定正确。
 // 不插适配器也能跑；插上适配器会额外输出检测数。
 using System.Runtime.InteropServices;
+using System.Collections.ObjectModel;
+using GinkgoHost.Models;
 using GinkgoHost.Native;
 using GinkgoHost.Services;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
+
+// ── 日志显示边界测试：--log-display，不访问硬件。 ──
+// 验证长 HEX 数据完整保留、行内可截断显示的源字符串不换行，以及 5,000 条上限。
+if (args.Length > 0 && args[0] == "--log-display")
+{
+    int displayFailures = 0;
+    foreach (int length in new[] { 32, 128, 256 })
+    {
+        byte[] bytes = Enumerable.Range(0, length).Select(i => (byte)i).ToArray();
+        var entry = new LogEntry(DateTime.UnixEpoch, "RX", "READ", "0x92", 0, 0.4, bytes);
+        int groups = entry.HexGrouped.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        bool pass = groups == length && entry.HexGrouped.Length == length * 3 - 1;
+        Console.WriteLine($"{(pass ? "PASS" : "FAIL")}  {length} 字节 HEX 保留 {groups} 组");
+        if (!pass) displayFailures++;
+    }
+
+    var log = new ObservableCollection<LogEntry>();
+    DateTime start = DateTime.UnixEpoch;
+    for (int i = 0; i < LogCollectionExtensions.Cap + 100; i++)
+        log.AddCapped(new LogEntry(start.AddMilliseconds(i), "RX", "READ", "0x92", 0, 0.1, [(byte)i]));
+    bool capPass = log.Count == LogCollectionExtensions.Cap && log[0].Ts == start.AddMilliseconds(100);
+    Console.WriteLine($"{(capPass ? "PASS" : "FAIL")}  日志上限 {log.Count}/{LogCollectionExtensions.Cap}，最旧记录正确淘汰");
+    return displayFailures == 0 && capPass ? 0 : 1;
+}
+
+// ── Aardvark 探针：--aardvark [bitrateKHz] ──
+// 验证 aardvark.dll 可用性、枚举与打开链路。
+// 运行期 DLL 来源：安装 Total Phase 驱动包（会部署到系统）或在应用目录放置官方完整版 aardvark.dll。
+// 注意：SDK zip 内 c/aardvark.dll 是编译期导入库（节内容为空），不能作为运行时 DLL 分发。
+if (args.Length > 0 && args[0] == "--aardvark")
+{
+    int khz = args.Length > 1 ? int.Parse(args[1]) : 400;
+    int avFailures = 0;
+    void AvCheck(string name, bool ok, string detail = "")
+    {
+        Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {name}{(detail.Length > 0 ? $"  ({detail})" : "")}");
+        if (!ok) avFailures++;
+    }
+
+    // DLL 解析：优先应用目录，其次系统目录（驱动安装位置）
+    string appDir = Path.Combine(AppContext.BaseDirectory, "aardvark.dll");
+    string sysDir = Path.Combine(Environment.SystemDirectory, "aardvark.dll");
+    string avDll = File.Exists(appDir) ? appDir : sysDir;
+    if (!File.Exists(avDll))
+    {
+        Console.WriteLine("FAIL  未找到 aardvark.dll");
+        Console.WriteLine("INFO  请安装 Total Phase Aardvark 驱动包（会部署系统级 aardvark.dll），");
+        Console.WriteLine("      或将官方完整版 aardvark.dll（x64）放到应用目录。SDK zip 里的 c/aardvark.dll 是导入库，不可用。");
+        return 1;
+    }
+    AvCheck("aardvark.dll 存在", true, avDll);
+    AvCheck("aardvark.dll 可加载", NativeLibrary.TryLoad(avDll, out nint ah));
+    if (ah != 0) NativeLibrary.Free(ah);
+
+    int[] ports;
+    try { ports = AardvarkI2c.FindDevices(); }
+    catch (EntryPointNotFoundException)
+    {
+        Console.WriteLine("FAIL  DLL 缺少 aa_* 导出：该文件是导入库占位，不是运行时 DLL");
+        return 1;
+    }
+    AvCheck("aa_find_devices 可调用", ports.Length >= 0, $"在线端口=[{string.Join(", ", ports)}]");
+    if (ports.Length == 0)
+    {
+        Console.WriteLine("INFO  无在线 Aardvark，枚举链路验证通过");
+        return avFailures == 0 ? 0 : 1;
+    }
+
+    int handle = AardvarkI2c.Open(ports[0], khz);
+    AvCheck("aa_open + I²C 配置", handle >= 0, $"handle={handle} ({AardvarkI2c.ErrorName(handle)})");
+    if (handle < 0) return 1;
+
+    int fret = AardvarkI2c.FreeBus(handle);
+    AvCheck("aa_i2c_free_bus", fret == AardvarkI2c.AA_OK, $"ret={fret} ({AardvarkI2c.ErrorName(fret)})");
+
+    // 总线扫描：0x08-0x77 单字节原始读，NACK 即无设备
+    var hits = new List<byte>();
+    for (byte a = 0x08; a <= 0x77; a++)
+    {
+        var buf = new byte[1];
+        if (AardvarkI2c.Read(handle, a, buf) == 1) hits.Add(a);
+    }
+    Console.WriteLine($"INFO  总线扫描命中 {(hits.Count == 0 ? "0 个（总线空闲）" : string.Join(" ", hits.Select(x => $"0x{x:X2}")))}");
+
+    int cret = AardvarkI2c.Close(handle);
+    AvCheck("aa_close", cret == AardvarkI2c.AA_OK, $"ret={cret}");
+    return avFailures == 0 ? 0 : 1;
+}
 
 // ── 探针模式：dotnet run --project tests/SmokeTest -- --probe <7位地址hex> [reg] [len] [期望值hex] ──
 // 绕过 GUI 直接验证总线读写，支持在两种速率下各扫一遍对比。

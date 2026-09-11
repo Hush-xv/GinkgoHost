@@ -26,6 +26,12 @@
       <Link>Ginkgo_Driver.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- Total Phase Aardvark API DLL x64 v6.00。官方 zip 分发件节表 rawsz 被清零（不可加载），
+         此文件已按相邻节指针差值修复节大小；详见 Native/AardvarkI2c.cs。 -->
+    <Content Include="libs\x64\aardvark.dll">
+      <Link>aardvark.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
 </Project>

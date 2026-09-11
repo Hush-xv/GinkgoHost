@@ -132,7 +132,7 @@ public static class Dbg
         try
         {
             Directory.CreateDirectory(LogDir);
-            ShellExecuteW(IntPtr.Zero, "open", LogDir, null, null, 1 /* SW_SHOWNORMAL */);
+            ShellExecuteW(IntPtr.Zero, "open", LogDir, "", "", 1 /* SW_SHOWNORMAL */);
         }
         catch { /* 打开失败不影响主流程 */ }
     }
