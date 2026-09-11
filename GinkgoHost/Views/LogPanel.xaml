@@ -66,9 +66,9 @@
         <!-- 事务流筛选 chip：弱化视觉（透明底/细描边/小号），与一级功能模式按钮拉开层级。 -->
         <Style x:Key="FilterPill" TargetType="ui:Button">
             <Setter Property="Height" Value="22" /><Setter Property="FontSize" Value="10.5" />
-            <Setter Property="Padding" Value="8,1" />
-            <Setter Property="Margin" Value="0,0,4,0" />
-            <Setter Property="CornerRadius" Value="11" />
+            <Setter Property="Padding" Value="9,1" />
+            <Setter Property="Margin" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="#30FFFFFF" />
@@ -86,16 +86,18 @@
             <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <TextBlock Text="事务流" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" />
-                <TextBlock Text="实时" Margin="8,0,0,0" FontSize="11" Foreground="#91D5A0" VerticalAlignment="Center" />
+                <TextBlock Text="实时" Margin="8,0,0,0" FontSize="11" Foreground="{DynamicResource StatusLiveBrush}" VerticalAlignment="Center" />
                 <TextBlock x:Name="TxtCount" Margin="8,0,0,0" Opacity="0.55" VerticalAlignment="Center" />
                 <TextBlock x:Name="TxtFeedback" Margin="10,0,0,0" Foreground="#91D5A0" FontSize="11" VerticalAlignment="Center" />
-                <StackPanel Orientation="Horizontal" Margin="14,0,0,0">
-                    <ui:Button x:Name="BtnFilterAll" Content="全部" Tag="all" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
-                    <ui:Button x:Name="BtnFilterRead" Content="读取" Tag="read" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
-                    <ui:Button x:Name="BtnFilterWrite" Content="写入" Tag="write" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
-                    <ui:Button x:Name="BtnFilterSystem" Content="系统" Tag="system" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
-                    <ui:Button x:Name="BtnFilterError" Content="失败" Tag="error" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
-                </StackPanel>
+                <Border Margin="14,0,0,0" Padding="2" CornerRadius="5" Background="#1AFFFFFF" BorderBrush="#28FFFFFF" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:Button x:Name="BtnFilterAll" Content="全部" Tag="all" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
+                        <ui:Button x:Name="BtnFilterRead" Content="读取" Tag="read" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
+                        <ui:Button x:Name="BtnFilterWrite" Content="写入" Tag="write" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
+                        <ui:Button x:Name="BtnFilterSystem" Content="系统" Tag="system" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
+                        <ui:Button x:Name="BtnFilterError" Content="失败" Tag="error" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
+                    </StackPanel>
+                </Border>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal">
                 <CheckBox x:Name="ChkFollow" Content="跟随最新" IsChecked="True" Checked="ChkFollow_Changed" Unchecked="ChkFollow_Changed" VerticalAlignment="Center" Margin="0,0,10,0" />
@@ -133,9 +135,10 @@
                         <Style TargetType="ListBoxItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /><Setter Property="MinHeight" Value="34" />
                             <Setter Property="BorderBrush" Value="#333333" /><Setter Property="BorderThickness" Value="0,0,0,1" />
+                            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                             <Style.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#0AFFFFFF" /></Trigger>
-                                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#243E67A8" /><Setter Property="BorderBrush" Value="#6686B8FF" /></Trigger>
+                                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#183E67A8" /><Setter Property="BorderBrush" Value="#6686B8FF" /></Trigger>
                             </Style.Triggers>
                         </Style>
                     </ListBox.ItemContainerStyle>

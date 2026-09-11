@@ -12,6 +12,10 @@
             </ResourceDictionary.MergedDictionaries>
             <!-- DataGrid 模板列不在可视树，转换器放 App 级才能被 StaticResource 解析 -->
             <views:DirIndexConverter x:Key="DirIndex" />
+            <!-- 状态色统一从资源获取，运行时主题与控件代码不再散落硬编码 RGB。 -->
+            <SolidColorBrush x:Key="StatusSuccessBrush" Color="#91D5A0" />
+            <SolidColorBrush x:Key="StatusErrorBrush" Color="#FF9B9B" />
+            <SolidColorBrush x:Key="StatusLiveBrush" Color="#91D5A0" />
 
             <!-- Shared visual language -->
             <Style x:Key="PageTitleStyle" TargetType="TextBlock">
