@@ -84,7 +84,9 @@ public static class GinkgoDriver
     [DllImport("Ginkgo_Driver.dll", EntryPoint = "VII_ReadBoardInfo")]
     private static extern int VII_ReadBoardInfo2(int DevIndex, ref VII_BOARD_INFO pBoardInfo);
 
-    /// <summary>按 DevIndex 读 BoardInfo（自动适配两参/三参导出）。</summary>
+    /// <summary>按 DevIndex 读 BoardInfo（自动适配两参/三参导出）。
+    /// 注意：v2.0.3.6 DLL 只导出一个 VII_ReadBoardInfo，实测为两参形态；三参声明指向同一
+    /// 导出、按 x64 寄存器传参多余实参被忽略（无栈损坏），仅作换驱动版本的兜底。</summary>
     public static int ReadBoardInfo(int devIndex, ref VII_BOARD_INFO info)
     {
         int ret = VII_ReadBoardInfo2(devIndex, ref info);

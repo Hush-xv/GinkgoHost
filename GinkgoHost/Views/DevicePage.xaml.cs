@@ -46,6 +46,7 @@ public partial class DevicePage : UserControl
 
             TxtSerial.Text = "—";
             TxtFirmware.Text = "—";
+            TxtModel.ToolTip = null; // 断开后清掉上一会话的驱动标识 tooltip
             if (App.Bus.AdapterCount > 0)
             {
                 try

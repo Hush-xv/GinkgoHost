@@ -1322,13 +1322,20 @@ internal static class Hex
 {
     public static byte ParseByte(string s)
     {
-        s = s.Trim().Replace("0x", "").Replace("0X", "");
+        s = s.Trim();
+        if (s.StartsWith("0x") || s.StartsWith("0X")) s = s[2..];
+        // NumberStyles.HexNumber 会接受 +/- 符号（"-1" 静默变 0xFF），显式拒绝非 hex 字符
+        if (s.Length == 0 || !s.All(c => Uri.IsHexDigit(c)))
+            throw new FormatException($"非法 HEX 字节：\"{s}\"");
         return byte.Parse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
     }
 
     public static bool TryParseByte(string s, out byte v)
     {
-        s = s.Trim().Replace("0x", "").Replace("0X", "");
+        v = 0;
+        s = s.Trim();
+        if (s.StartsWith("0x") || s.StartsWith("0X")) s = s[2..];
+        if (s.Length == 0 || !s.All(c => Uri.IsHexDigit(c))) return false;
         return byte.TryParse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out v);
     }
 
