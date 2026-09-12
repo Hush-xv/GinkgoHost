@@ -20,7 +20,7 @@
                         <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
                     </Grid.RowDefinitions>
                     <TextBlock Text="适配器" Opacity="0.65" Margin="0,0,32,8" />
-                    <TextBlock x:Name="TxtModel" Grid.Column="1" Text="Ginkgo VTG200A USB-I2C（型号待确认）" />
+                    <TextBlock x:Name="TxtModel" Grid.Column="1" Text="—" />
                     <TextBlock Text="序列号" Grid.Row="1" Opacity="0.65" Margin="0,0,32,8" />
                     <TextBlock x:Name="TxtSerial" Grid.Row="1" Grid.Column="1" FontFamily="Consolas" Text="—" />
                     <TextBlock Text="固件" Grid.Row="2" Opacity="0.65" Margin="0,0,32,8" />

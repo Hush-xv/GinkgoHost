@@ -30,9 +30,8 @@ public partial class DevicePage : UserControl
                 ? System.Windows.Visibility.Collapsed
                 : System.Windows.Visibility.Visible;
             TxtPinoutTitle.Text = App.Bus.AdapterCount > 0 ? "VTG200A 接口与引脚" : "接口与引脚";
-            TxtModel.Text = App.Bus.AdapterCount > 0
-                ? "Ginkgo VTG200A USB-I2C"
-                : "Ginkgo VTG200A USB-I2C（型号待确认）";
+            // 未检测到硬件时身份字段一律占位：不预设型号，避免静态文案冒充设备信息
+            TxtModel.Text = App.Bus.AdapterCount > 0 ? "Ginkgo VTG200A USB-I2C" : "—";
 
             // 设备身份（P9）：读取 BoardInfo 序列号/固件；未检测到时保持占位
             try
