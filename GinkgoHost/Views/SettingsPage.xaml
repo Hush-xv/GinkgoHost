@@ -3,13 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="12,8,12,20" MaxWidth="760" HorizontalAlignment="Left">
+        <StackPanel Margin="{StaticResource PageContentMargin}" MaxWidth="760" HorizontalAlignment="Center">
 
             <TextBlock Text="设置" Style="{StaticResource PageTitleStyle}" />
-            <TextBlock Text="调整外观，并查看本机配置与应用信息" Style="{StaticResource PageSubtitleStyle}" />
+            <TextBlock Text="调整外观，并查看本机配置与应用信息 · Ctrl+4" Style="{StaticResource PageSubtitleStyle}" />
 
             <TextBlock Text="外观" Style="{StaticResource SectionTitleStyle}" />
-            <ui:Card Margin="0,0,0,14" Padding="12,10">
+            <ui:Card Margin="0,0,0,20" Padding="16,14">
+                <StackPanel>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -24,21 +25,54 @@
                         <ComboBoxItem Content="Light" />
                     </ComboBox>
                 </Grid>
+                <TextBlock x:Name="TxtSettingsFeedback" MinHeight="16" Margin="0,8,0,0" FontSize="11"
+                           Foreground="{DynamicResource StatusSuccessBrush}" TextWrapping="Wrap" />
+                </StackPanel>
+            </ui:Card>
+
+            <TextBlock Text="连接" Style="{StaticResource SectionTitleStyle}" />
+            <ui:Card Margin="0,0,0,20" Padding="16,14">
+                <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="启动时自动连接适配器" FontWeight="SemiBold" />
+                        <TextBlock Text="应用启动后自动扫描并连接 Ginkgo；未检测到设备时静默跳过" FontSize="11" Opacity="0.55" Margin="0,2,0,0" />
+                    </StackPanel>
+                    <ui:ToggleSwitch x:Name="TglAutoConnect" Grid.Column="1" Checked="TglAutoConnect_Changed" Unchecked="TglAutoConnect_Changed" />
+                </Grid>
+                <TextBlock x:Name="TxtAutoConnectFeedback" MinHeight="16" Margin="0,8,0,0" FontSize="11"
+                           Foreground="{DynamicResource StatusSuccessBrush}" TextWrapping="Wrap" />
+                </StackPanel>
             </ui:Card>
 
             <TextBlock Text="连接参数记忆" Style="{StaticResource SectionTitleStyle}" />
-            <ui:Card Margin="0,0,0,14" Padding="12,10">
+            <ui:Card Margin="0,0,0,20" Padding="16,14">
                 <StackPanel>
                     <TextBlock Text="通道、速率、上次从机地址会随操作自动保存，重启后恢复。"
                                Opacity="0.85" TextWrapping="Wrap" />
-                    <TextBlock x:Name="TxtSettingsPath" Opacity="0.45" Margin="0,8,0,0"
-                               FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" />
+                    <Border Margin="0,8,0,0" Padding="8,6" CornerRadius="8" Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
+                        <DockPanel>
+                            <ui:Button DockPanel.Dock="Right" Content="复制路径" Click="BtnCopySettingsPath_Click"
+                                       FontSize="11" Padding="8,1" MinHeight="30" Margin="10,0,0,0" ToolTip="复制 settings.json 的完整路径" />
+                            <TextBlock x:Name="TxtSettingsPath" Opacity="0.55" FontFamily="Consolas" FontSize="11"
+                                       TextWrapping="Wrap" ToolTip="本机设置文件路径" />
+                        </DockPanel>
+                    </Border>
                 </StackPanel>
             </ui:Card>
 
             <TextBlock Text="调试日志" Style="{StaticResource SectionTitleStyle}" />
-            <ui:Card Margin="0,0,0,14" Padding="12,10">
+            <ui:Card Margin="0,0,0,20" Padding="16,14">
                 <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
@@ -46,16 +80,24 @@
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="运行日志按天写入本地，保留 7 天，用于排查连接与驱动问题。"
                                    Opacity="0.85" TextWrapping="Wrap" />
-                        <TextBlock x:Name="TxtLogPath" Opacity="0.45" Margin="0,8,0,0"
-                                   FontFamily="Consolas" FontSize="11" TextWrapping="Wrap" />
+                        <Border Margin="0,8,0,0" Padding="8,6" CornerRadius="8" Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
+                            <TextBlock x:Name="TxtLogPath" Opacity="0.55" FontFamily="Consolas" FontSize="11"
+                                       TextWrapping="Wrap" ToolTip="本机调试日志目录" />
+                        </Border>
                     </StackPanel>
-                    <ui:Button x:Name="BtnOpenLogDir" Grid.Column="1" Content="打开日志文件夹"
-                               VerticalAlignment="Center" Margin="12,0,0,0" Click="BtnOpenLogDir_Click" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="12,0,0,0">
+                        <ui:Button Content="复制路径" FontSize="11" Padding="8,1" MinHeight="30" Margin="0,0,0,6"
+                                   Click="BtnCopyLogPath_Click" />
+                        <ui:Button x:Name="BtnOpenLogDir" Content="打开日志文件夹" MinHeight="30" Click="BtnOpenLogDir_Click" />
+                    </StackPanel>
+                    <TextBlock x:Name="TxtLogFeedback" Grid.Row="1" Grid.ColumnSpan="2" MinHeight="16" Margin="0,8,0,0" FontSize="11"
+                               Foreground="{DynamicResource StatusSuccessBrush}" TextWrapping="Wrap" />
                 </Grid>
             </ui:Card>
 
             <TextBlock Text="关于" Style="{StaticResource SectionTitleStyle}" />
-            <ui:Card Padding="12,10">
+            <ui:Card Padding="16,14">
                 <StackPanel>
                     <TextBlock Text="GinkgoHost · Ginkgo USB-I²C 调试工作台" Opacity="0.85" />
                     <TextBlock Text="协议引擎：ViewTool Ginkgo_Driver.dll · UI：WPF + WPF-UI (Fluent)"

@@ -32,12 +32,39 @@ public partial class I2cPage : UserControl
     private bool _operationBusy;
     private bool _extOperationBusy;
     private bool _wideLayout;
+    private bool _compactCommandLayout;
+    private string _operationAction = string.Empty;
+    private object? _readButtonContent;
+    private object? _writeButtonContent;
+    private bool? _lastBusConnection;
+    private string? _lastTransactionText;
+    private byte[]? _lastReadData;
+    private byte? _lastReadAddress;
+    private byte? _lastReadRegister;
+    private bool _lastReadHasRegister;
+#if DEBUG
+    private string? _lastStatusDebugText;
+#endif
     // XAML 加载期 SelectionChanged 就会触发，_loading 初始为 true，RestoreSettings 完成后才放行
     private bool _loading = true;
+
+    // 高频路径（每次按键校验）复用的冻结画刷；随主题变化的颜色一律走资源引用（App.ApplyThemePalette 按主题整组替换）
+    private static readonly SolidColorBrush ErrorBorderBrush = FrozenBrush(0xEF, 0x53, 0x50);
+    private static readonly Brush ConnectedDotBrush = FrozenBrush(0x58, 0xC6, 0x67);   // 饱和绿点，双主题可见
+    private static readonly Brush DisconnectedDotBrush = FrozenBrush(0x77, 0x77, 0x77); // 中性灰点，双主题可见
+
+    static SolidColorBrush FrozenBrush(byte r, byte g, byte b, byte a = 0xFF)
+    {
+        var brush = new SolidColorBrush(Color.FromArgb(a, r, g, b));
+        brush.Freeze();
+        return brush;
+    }
 
     public I2cPage()
     {
         InitializeComponent();
+        _readButtonContent = BtnRead.Content;
+        _writeButtonContent = BtnWrite.Content;
         LogView.Init(App.Log);
         GridReg.ItemsSource = RegTable;
         GridInit.ItemsSource = InitSeq;
@@ -52,16 +79,36 @@ public partial class I2cPage : UserControl
             App.Bus.StateChanged -= OnBusStateChanged;
             App.Bus.StateChanged += OnBusStateChanged;
             RefreshOperationAvailability();
+            RefreshBusConnectionBadge();
             RefreshExtendedUi();
             ApplyResponsiveLayout();
         };
         Unloaded += (_, _) =>
         {
             App.Bus.StateChanged -= OnBusStateChanged;
+            _scanCts?.Cancel(); // 离开页面时中止进行中的扫描
             CancelExtendedWork();
         };
         ShowExtTab(false); // 初始化模式 Tab 选中样式（XAML 不再硬编码 Primary）
         ShowExtSub("reg");
+    }
+
+    /// <summary>中止进行中的总线扫描（供主窗口关闭流程调用，避免 CloseAsync 等待长扫描挂起）。</summary>
+    public void CancelScan() => _scanCts?.Cancel();
+
+    /// <summary>从设备概览进入工作区时落到目标地址，连接后的下一步无需再次寻找输入位置。</summary>
+    public void FocusTransactionTarget()
+    {
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!IsVisible || TxtAddr is null || !TxtAddr.IsEnabled) return;
+            TxtAddr.Focus();
+            TxtAddr.SelectAll();
+#if DEBUG
+            Dbg.Log("I2cPage.FocusTransactionTarget: target address focused from device workflow");
+#endif
+        });
     }
 
     private void RestoreSettings()
@@ -152,63 +199,15 @@ public partial class I2cPage : UserControl
 
     // ── Settings 段 ──
 
-    // ── 扩展面板（寄存器表 / 初始化序列，行内执行支持按「周期ms」轮询）──
-
-    public ObservableCollection<RegRow> RegTable { get; } = [];
-    public ObservableCollection<RegRow> InitSeq { get; } = [];
-    public ObservableCollection<I2cTarget> Targets { get; } = [];
-    /// <summary>正在轮询的行 → 其取消源。键为引用，DataGrid 行对象生命周期内稳定。</summary>
-    private readonly Dictionary<RegRow, CancellationTokenSource> _rowLoops = [];
-
-    private void BtnTabMain_Click(object sender, RoutedEventArgs e) => ShowExtTab(false);
-    private void BtnTabExt_Click(object sender, RoutedEventArgs e) => ShowExtTab(true);
-
-    private static void SetModeTab(System.Windows.Controls.Button tab, bool active)
-    {
-        tab.Background = active
-            ? new SolidColorBrush(Color.FromArgb(0x2E, 0xE8, 0xB4, 0x77))
-            : Brushes.Transparent;
-        tab.Foreground = active
-            ? new SolidColorBrush(Color.FromRgb(0xF0, 0xC1, 0x7B))
-            : new SolidColorBrush(Color.FromRgb(0xC9, 0xC9, 0xC9)); // Normal 比 Disabled 亮一档，可点 ≠ 不可用
-        tab.BorderBrush = active
-            ? new SolidColorBrush(Color.FromRgb(0xE8, 0xB4, 0x77))
-            : new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
-        tab.BorderThickness = new Thickness(0, 0, 0, 2);
-    }
-
-    private void BtnSubReg_Click(object sender, RoutedEventArgs e) => ShowExtSub("reg");
-    private void BtnSubInit_Click(object sender, RoutedEventArgs e) => ShowExtSub("init");
-
-    private void ShowExtSub(string which)
-    {
-        RegHost.Visibility = which == "reg" ? Visibility.Visible : Visibility.Collapsed;
-        InitHost.Visibility = which == "init" ? Visibility.Visible : Visibility.Collapsed;
-        BtnSubReg.Appearance = which == "reg" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
-        BtnSubInit.Appearance = which == "init" ? Wpf.Ui.Controls.ControlAppearance.Primary : Wpf.Ui.Controls.ControlAppearance.Secondary;
-    }
-
-    private void ShowExtTab(bool ext)
-    {
-        ExtPanel.Visibility = ext ? Visibility.Visible : Visibility.Collapsed;
-        ControlColumn.MinWidth = ext ? 320 : 0;
-        ControlColumn.MaxWidth = _wideLayout ? 720 : 560;
-        ControlColumn.Width = ext
-            ? new GridLength(Math.Clamp(App.Settings.ExtPanelWidth, 320, ControlColumn.MaxWidth))
-            : new GridLength(0);
-        PanelSplitter.Visibility = ext ? Visibility.Visible : Visibility.Collapsed;
-        BtnTabMain.Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary;
-        BtnTabExt.Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary;
-        // 模式 Tab 用「深色底 + 橙字 + 橙色底边」表达选中，不与写入等执行按钮争抢 Primary
-        SetModeTab(BtnTabMain, active: !ext);
-        SetModeTab(BtnTabExt, active: ext);
-    }
-
     /// <summary>宽屏优先增加有效工作区，普通窗口保留用户保存的分栏比例。</summary>
     private void ApplyResponsiveLayout()
     {
         bool wide = ActualWidth >= 1_800 && ActualHeight >= 900;
-        if (wide == _wideLayout) return;
+        if (wide == _wideLayout)
+        {
+            ApplyCommandLayout();
+            return;
+        }
 
         _wideLayout = wide;
         ControlColumn.MaxWidth = wide ? 720 : 560;
@@ -220,7 +219,7 @@ public partial class I2cPage : UserControl
             ControlColumn.Width = new GridLength(Math.Min(width, ControlColumn.MaxWidth));
         }
 
-        // 宽窄一律按比例分行：宽屏下若 DataRow 为 Auto，拖动 LogSplitter 会把行改成固定值导致布局散架
+        // 上方是事务编辑器、下方是证据流；比例始终以日志区域占比存储。
         double ratio = Math.Clamp(App.Settings.LogPanelRatio, 0.3, 0.8);
         LogRow.Height = new GridLength(ratio, GridUnitType.Star);
         DataRow.Height = new GridLength(1 - ratio, GridUnitType.Star);
@@ -228,50 +227,71 @@ public partial class I2cPage : UserControl
         GridReg.FontSize = wide ? 13 : 12;
         GridInit.FontSize = wide ? 13 : 12;
         System.Windows.Documents.TextElement.SetFontSize(DataOperationsCard, wide ? 13 : 12);
+        ApplyCommandLayout();
         Dbg.Log($"I2cPage.ApplyResponsiveLayout: wide={wide} width={ActualWidth:F0} height={ActualHeight:F0}");
+    }
+
+    /// <summary>操作栏在窄区改为两行，组内 WrapPanel 再按字段换行，避免水平滚动隐藏主操作。</summary>
+    private void ApplyCommandLayout()
+    {
+        if (CommandGroups is null || DataTargetGroup is null || DataTransferGroup is null) return;
+        double sideWidth = ControlColumn.ActualWidth > 0 ? ControlColumn.ActualWidth : ControlColumn.Width.Value;
+        double available = ActualWidth - (ExtPanel.Visibility == Visibility.Visible
+            ? sideWidth + PanelSplitter.ActualWidth + 12
+            : 0);
+        bool compact = available < 1_020;
+        if (compact == _compactCommandLayout) return;
+
+        _compactCommandLayout = compact;
+        Grid.SetColumn(DataTargetGroup, 0);
+        Grid.SetRow(DataTargetGroup, 0);
+        Grid.SetColumnSpan(DataTargetGroup, compact ? 2 : 1);
+        Grid.SetColumn(DataTransferGroup, compact ? 0 : 1);
+        Grid.SetRow(DataTransferGroup, compact ? 1 : 0);
+        Grid.SetColumnSpan(DataTransferGroup, compact ? 2 : 1);
+        DataTransferGroup.Margin = compact ? new Thickness(0, 6, 0, 0) : new Thickness(10, 0, 0, 0);
+#if DEBUG
+        Dbg.Log($"I2cPage.ApplyCommandLayout: compact={compact} available={available:F0}");
+#endif
     }
 
     private void OnBusStateChanged()
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.Invoke(OnBusStateChanged);
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            Dispatcher.BeginInvoke(OnBusStateChanged);
             return;
         }
-        if (!App.Bus.IsOpen) CancelExtendedWork();
+        if (!App.Bus.IsOpen)
+        {
+            _scanCts?.Cancel(); // 断开后扫描无意义，立即中止
+            CancelExtendedWork();
+        }
+        RefreshBusConnectionBadge();
         RefreshOperationAvailability();
         RefreshExtendedUi();
     }
 
-    private void TxtSlave_TextChanged(object sender, TextChangedEventArgs e) => ValidateExtSlave();
-
-    private bool ValidateExtSlave()
+    /// <summary>总线配置条始终显示真实连接状态，避免只靠页面底部状态推断当前会话是否可用。</summary>
+    private void RefreshBusConnectionBadge()
     {
-        // XAML 按声明顺序创建控件；TxtSlave 的初始 TextChanged 会早于 CmbAddrFmt。
-        bool eightBit = CmbAddrFmt?.SelectedIndex == 1;
-        bool valid = Hex.TryParseByte(TxtSlave.Text, out var address) &&
-                     (eightBit ? (address & 1) == 0 : address <= 0x7F);
-        TxtSlave.ToolTip = valid
-            ? eightBit ? "8 位地址（hex），如 0x92" : "7 位地址（hex），如 0x49"
-            : eightBit ? "8 位地址须为偶数 hex 值，如 0x92" : "地址须为 00–7F 的十六进制数";
-        return valid;
-    }
-
-    private byte ExtSlave7()
-    {
-        if (!ValidateExtSlave()) throw new ArgumentException("从机地址格式无效");
-        byte raw = Hex.ParseByte(TxtSlave.Text);
-        return CmbAddrFmt.SelectedIndex == 1 ? (byte)(raw >> 1) : raw;
-    }
-
-    private void UpdateExtAddressFormatHint()
-    {
-        bool eightBit = CmbAddrFmt.SelectedIndex == 1;
-        TxtExtSlaveLabel.Text = eightBit ? "从机地址 · 8-bit" : "从机地址 · 7-bit";
-        ValidateExtSlave();
+        if (TxtI2cConnection is null || DotI2cConnection is null) return;
+        bool connected = App.Bus.IsOpen;
+        TxtI2cConnection.Text = connected ? $"已连接 · CH{App.Bus.Channel}" : "未连接";
+        TxtI2cConnection.SetResourceReference(TextBlock.ForegroundProperty,
+            connected ? "StatusSuccessBrush" : "TextFillColorSecondaryBrush");
+        DotI2cConnection.Fill = connected ? ConnectedDotBrush : DisconnectedDotBrush;
+#if DEBUG
+        if (_lastBusConnection != connected)
+            Dbg.Log($"I2cPage.RefreshBusConnectionBadge: connected={connected} channel={App.Bus.Channel}");
+#endif
+        _lastBusConnection = connected;
     }
 
     // ── 已保存目标 ──
+
+    public ObservableCollection<I2cTarget> Targets { get; } = [];
 
     private void LoadTargets()
     {
@@ -318,7 +338,7 @@ public partial class I2cPage : UserControl
         App.Settings.Save();
     }
 
-    private I2cTarget UpsertTarget(byte address7)
+    private I2cTarget UpsertTarget(byte address7, bool persist = true)
     {
         var target = Targets.FirstOrDefault(t => t.Address7 == address7);
         if (target is null)
@@ -329,11 +349,11 @@ public partial class I2cPage : UserControl
         }
         RefreshTargetDisplays();
         RefreshTargetEmptyHint();
-        PersistTargets();
+        if (persist) PersistTargets();
         return target;
     }
 
-    private void AddScannedTargets(IReadOnlyCollection<byte> addresses)
+    private void AddScannedTargets(IReadOnlyCollection<byte> addresses, bool persist = true)
     {
         bool changed = false;
         foreach (byte address in addresses)
@@ -345,7 +365,8 @@ public partial class I2cPage : UserControl
         if (!changed) return;
         RefreshTargetDisplays();
         RefreshTargetEmptyHint();
-        PersistTargets();
+        if (persist) PersistTargets();
+        else _scanTargetsChanged = true;
         Dbg.Log($"I2cPage.AddScannedTargets: added count={addresses.Count}");
     }
 
@@ -379,441 +400,125 @@ public partial class I2cPage : UserControl
         SetLastTransactionStatus($"已保存目标 {DisplayAddress(address)}", "StatusSuccessBrush");
     }
 
-    private uint ExtParseReg(string s)
+    private void BtnRemoveTarget_Click(object sender, RoutedEventArgs e)
     {
-        s = s.Trim().Replace("0x", "").Replace("0X", "");
-        uint value = uint.Parse(s, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-        uint max = ExtRegWidth() == GinkgoDriver.VII_SUB_ADDR_2BYTE ? 0xFFFFu : 0xFFu;
-        if (value > max) throw new ArgumentException($"寄存器地址超出 {max:X} 范围");
-        return value;
+        if (CmbTarget.SelectedItem is not I2cTarget target) return;
+        Targets.Remove(target);
+        CmbTarget.SelectedItem = null;
+        RefreshTargetEmptyHint();
+        PersistTargets();
+        SetLastTransactionStatus($"已移除目标 {DisplayAddress(target.Address7)}", "StatusSuccessBrush");
+        Dbg.Log($"I2cPage.BtnRemoveTarget_Click: removed addr={DisplayAddress(target.Address7)}");
     }
 
-    private static int ExtLength(RegRow row)
+    /// <summary>地址/寄存器/长度框内按 Enter 直接读取（缓冲区多行编辑除外，Enter 在那里是换行）。</summary>
+    private void FieldBox_KeyDown(object sender, KeyEventArgs e)
     {
-        if (row.Len is < 1 or > 256) throw new ArgumentException("读取长度须在 1–256 之间");
-        return row.Len;
-    }
-
-    private static byte[] ExtWriteData(RegRow row)
-    {
-        byte[] data = Hex.ParseBytes(string.IsNullOrWhiteSpace(row.Value) ? "00" : row.Value);
-        if (data.Length is < 1 or > 256) throw new ArgumentException("写入数据须在 1–256 字节之间");
-        return data;
-    }
-
-    private byte ExtRegWidth() =>
-        CmbRegWidth.SelectedIndex == 1 ? GinkgoDriver.VII_SUB_ADDR_2BYTE : GinkgoDriver.VII_SUB_ADDR_1BYTE;
-
-    private void RefreshProfiles()
-    {
-        CmbProfile.Items.Clear();
-        foreach (var p in ProfileService.List())
-            CmbProfile.Items.Add(p);
-        if (CmbProfile.Items.Count > 0) CmbProfile.SelectedIndex = 0;
-    }
-
-    private void BtnAddRow_Click(object sender, RoutedEventArgs e) => RegTable.Add(new RegRow());
-    private void BtnAddInit_Click(object sender, RoutedEventArgs e) => InitSeq.Add(new RegRow());
-
-    private void BtnDelRow_Click(object sender, RoutedEventArgs e)
-    {
-        if (GridReg.SelectedItem is not RegRow r) return;
-        Dbg.Log($"I2cPage.BtnDelRow_Click: reg={r.Reg}");
-        RegTable.Remove(r);
-    }
-
-    private void BtnDelInit_Click(object sender, RoutedEventArgs e)
-    {
-        if (GridInit.SelectedItem is not RegRow r) return;
-        Dbg.Log($"I2cPage.BtnDelInit_Click: reg={r.Reg}");
-        InitSeq.Remove(r);
-    }
-
-    private void GridReg_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
-        BtnDelRow.IsEnabled = !_extOperationBusy && GridReg.SelectedItem is RegRow;
-
-    private void GridInit_SelectionChanged(object sender, SelectionChangedEventArgs e) =>
-        BtnDelInit.IsEnabled = !_extOperationBusy && GridInit.SelectedItem is RegRow;
-
-    /// <summary>按钮执行前提交 DataGrid 当前编辑，避免刚切换的读写方向仍沿用旧值。</summary>
-    private static void CommitGridEdit(DataGrid grid)
-    {
-        grid.CommitEdit(DataGridEditingUnit.Cell, true);
-        grid.CommitEdit(DataGridEditingUnit.Row, true);
-        Dbg.Log($"I2cPage.CommitGridEdit: grid={grid.Name}");
-    }
-
-    private static string RegisterOperation(string action, RegRow row) => $"{action} · Reg {row.Reg}";
-
-    /// <summary>进入行内编辑后直接覆盖旧值，避免先删除默认地址或长度。</summary>
-    private void Grid_PreparingCellForEdit(object sender, DataGridPreparingCellForEditEventArgs e)
-    {
-        if (e.EditingElement is not TextBox editor) return;
-        Dispatcher.BeginInvoke(editor.SelectAll, System.Windows.Threading.DispatcherPriority.Input);
-    }
-
-    /// <summary>行执行：周期ms=0 单次执行（按读写属性）；&gt;0 点击进入周期轮询，再点停止。</summary>
-    private async void BtnRowExec_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button btn || btn.DataContext is not RegRow row) return;
-        CommitGridEdit(GridReg);
-
-        // 已在轮询 → 本次点击 = 停止
-        if (_rowLoops.TryGetValue(row, out var running))
-        {
-            running.Cancel();
-            _rowLoops.Remove(row);
-            btn.Content = "执行";
-            row.Polling = false;
-            return;
-        }
-
-        if (_extOperationBusy) return;
-        if (row.PeriodMs > 0)
-        {
-            var cts = new CancellationTokenSource();
-            _rowLoops[row] = cts;
-            row.Polling = true;
-            row.PollCount = 0;
-            btn.Content = "停止·0";
-            SetExtOperationBusy(true, "周期轮询");
-            try { await RunRowLoopAsync(row, btn, cts.Token); }
-            finally
-            {
-                _rowLoops.Remove(row);
-                btn.Content = "执行";
-                row.Polling = false;
-                SetExtOperationBusy(false);
-            }
-        }
-        else
-        {
-            await RunExtendedOperationAsync("行执行", () => ExecRowOnceAsync(row));
-        }
-    }
-
-    /// <summary>单次执行：按行读写属性分派（R 读 / W 写）。</summary>
-    private async Task ExecRowOnceAsync(RegRow row)
-    {
-        if (row.Dir == "W")
-        {
-            byte[] data = ExtWriteData(row);
-            var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
-            row.Status = r.Ok ? "OK" : "ERR";
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", RegisterOperation("寄存器写", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, data));
-        }
-        else
-        {
-            var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), ExtLength(row), ExtRegWidth());
-            row.Status = r.Ok ? "OK" : "ERR";
-            if (r.Ok && r.Data is not null) row.Value = BufferText(r.Data);
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", RegisterOperation("寄存器读", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
-        }
-    }
-
-    /// <summary>行周期轮询循环：每次读都回填数据并记录事务，等待间隔支持取消。</summary>
-    private async Task RunRowLoopAsync(RegRow row, System.Windows.Controls.Button execBtn, CancellationToken ct)
-    {
-        Dbg.Log($"I2cPage.RunRowLoopAsync: start reg={row.Reg} periodMs={row.PeriodMs} dir={row.Dir}");
-        while (!ct.IsCancellationRequested)
-        {
-            try
-            {
-                if (row.Dir == "W")
-                {
-                    byte[] data = ExtWriteData(row);
-                    var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
-                    row.Status = r.Ok ? "OK" : "ERR";
-                    if (!r.Ok)
-                        App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", RegisterOperation("周期写", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, data));
-                }
-                else
-                {
-                    var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), ExtLength(row), ExtRegWidth());
-                    row.Status = r.Ok ? "OK" : "ERR";
-                    if (r.Ok)
-                    {
-                        // 成功事务必须回填，即使值与上一轮相同，也让表格反映本次读到的结果。
-                        row.Value = r.Data is not null ? BufferText(r.Data) : "—";
-                        App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", RegisterOperation("周期读", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                row.Status = "ERR";
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "周期读", "—", -1, 0,
-                    System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-            }
-            row.PollCount++;
-            execBtn.Content = $"停止·{row.PollCount}";
-            try { await Task.Delay(Math.Max(10, row.PeriodMs), ct); }
-            catch (OperationCanceledException) { break; }
-        }
-        Dbg.Log($"I2cPage.RunRowLoopAsync: stopped reg={row.Reg} polls={row.PollCount}");
-    }
-
-    /// <summary>初始化行执行：按行读写属性分派（R 读校验 / W 写入）。</summary>
-    private async void BtnInitRowExec_Click(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { DataContext: RegRow row }) return;
-        CommitGridEdit(GridInit);
-        if (_extOperationBusy) return;
-        await RunExtendedOperationAsync("初始化行", () => ExecInitRowAsync(row));
-    }
-
-    private async Task ExecInitRowAsync(RegRow row)
-    {
-        try
-        {
-            if (row.Dir == "R")
-            {
-                var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), ExtLength(row), ExtRegWidth());
-                row.Status = r.Ok ? "OK" : "ERR";
-                if (r.Ok && r.Data is not null) row.Value = BufferText(r.Data);
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", RegisterOperation("初始化读", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
-            }
-            else
-            {
-                byte[] data = ExtWriteData(row);
-                var r = await App.Bus.WriteSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), data, ExtRegWidth());
-                row.Status = r.Ok ? "OK" : "ERR";
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", RegisterOperation("初始化写", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, data));
-            }
-        }
-        catch (Exception ex)
-        {
-            row.Status = "ERR";
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "初始化", "—", -1, 0,
-                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-        }
-    }
-
-    private async void BtnReadAll_Click(object sender, RoutedEventArgs e)
-    {
-        if (_extOperationBusy) return;
-        CommitGridEdit(GridReg);
-        await RunExtendedOperationAsync("一键读取", ReadAllAsync);
-    }
-
-    private async Task ReadAllAsync()
-    {
-        // 只读取方向为 R 的行；W 行由行内「执行」显式写入
-        foreach (var row in RegTable.Where(r => r.Dir == "R"))
-        {
-            try
-            {
-                var r = await App.Bus.ReadSubAddrAsync(ExtSlave7(), ExtParseReg(row.Reg), ExtLength(row), ExtRegWidth());
-                row.Status = r.Ok ? "OK" : "ERR";
-                if (r.Ok && r.Data is not null) row.Value = BufferText(r.Data);
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", RegisterOperation("寄存器读", row), DisplayAddress(ExtSlave7()), r.Ret, r.Ms, r.Data));
-            }
-            catch (Exception ex)
-            {
-                row.Status = "ERR";
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "读全部", "—", -1, 0,
-                    System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-            }
-        }
-    }
-
-    private async void BtnRunInit_Click(object sender, RoutedEventArgs e)
-    {
-        if (_extOperationBusy) return;
-        if (MessageBox.Show("初始化序列可能包含写入操作。确认继续执行？", "确认初始化",
-            MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
-        {
-            TxtExtStatus.Text = "已取消初始化";
-            return;
-        }
-        await RunExtendedOperationAsync("一键初始化", RunInitSequenceAsync);
-    }
-
-    private async Task RunInitSequenceAsync()
-    {
-        foreach (var row in InitSeq)
-        {
-            if (row.DelayMs > 0)
-                await Task.Delay(Math.Min(row.DelayMs, 10_000));
-            await ExecInitRowAsync(row);
-            if (row.Status == "ERR") break; // 初始化失败即中止，后续行没有意义
-        }
-    }
-
-    private async Task RunExtendedOperationAsync(string action, Func<Task> operation)
-    {
-        SetExtOperationBusy(true, action);
-        Dbg.Log($"I2cPage.RunExtendedOperationAsync: start action={action}");
-        try
-        {
-            await operation();
-        }
-        catch (Exception ex)
-        {
-            App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", action, "—", -1, 0,
-                System.Text.Encoding.UTF8.GetBytes(ex.Message)));
-            Dbg.Log($"I2cPage.RunExtendedOperationAsync: failed action={action} error={ex.Message}");
-        }
-        finally
-        {
-            SetExtOperationBusy(false);
-            Dbg.Log($"I2cPage.RunExtendedOperationAsync: end action={action}");
-        }
-    }
-
-    private void SetExtOperationBusy(bool busy, string action = "")
-    {
-        _extOperationBusy = busy;
-        BtnAddRow.IsEnabled = !busy;
-        BtnReadAll.IsEnabled = !busy;
-        BtnAddInit.IsEnabled = !busy;
-        BtnRunInit.IsEnabled = !busy;
-        BtnSave.IsEnabled = !busy;
-        BtnLoad.IsEnabled = !busy;
-        BtnDelete.IsEnabled = !busy;
-        BtnDelRow.IsEnabled = !busy && GridReg.SelectedItem is RegRow;
-        BtnDelInit.IsEnabled = !busy && GridInit.SelectedItem is RegRow;
-        RefreshExtendedUi(action);
-        Dbg.Log($"I2cPage.SetExtOperationBusy: busy={busy} action={action}");
-    }
-
-    private void RefreshExtendedUi(string action = "")
-    {
-        if (TxtExtStatus is null) return;
-        bool connected = App.Bus.IsOpen;
-        CanExecuteExtended = connected && !_extOperationBusy;
-        BtnReadAll.IsEnabled = CanExecuteExtended;
-        BtnRunInit.IsEnabled = CanExecuteExtended;
-        BtnStopPolling.Visibility = _rowLoops.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        BtnStopPolling.IsEnabled = _rowLoops.Count > 0;
-        GridReg.IsReadOnly = _extOperationBusy;
-        GridInit.IsReadOnly = _extOperationBusy;
-        TxtRegEmpty.Visibility = RegTable.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        TxtInitEmpty.Visibility = InitSeq.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        TxtExtStatus.Text = !connected ? "未连接：可编辑表格，连接适配器后执行"
-            : _extOperationBusy ? $"正在{action}，表格已锁定" : "已连接：可执行读、写和初始化";
-    }
-
-    private void BtnStopPolling_Click(object sender, RoutedEventArgs e)
-    {
-        CancelExtendedWork();
-        Dbg.Log("I2cPage.BtnStopPolling_Click: requested");
-    }
-
-    private void CancelExtendedWork()
-    {
-        foreach (var cts in _rowLoops.Values) cts.Cancel();
-        if (_rowLoops.Count > 0)
-            Dbg.Log($"I2cPage.CancelExtendedWork: loops={_rowLoops.Count}");
-    }
-
-    // ── Profile ──
-
-    private void BtnSave_Click(object sender, RoutedEventArgs e)
-    {
-        string name = (CmbProfile.Text ?? "").Trim();
-        if (name.Length == 0) { MessageBox.Show("输入或选择 Profile 名"); return; }
-        if (!ProfileService.IsValidName(name)) { MessageBox.Show("Profile 名不能含有文件名禁用字符"); return; }
-        try
-        {
-            ProfileService.Save(name, RegTable, InitSeq);
-            RefreshProfiles();
-            CmbProfile.Text = name;
-            Dbg.Log($"I2cPage.BtnSave_Click: profile={name}");
-        }
-        catch (Exception ex)
-        {
-            Dbg.Log($"I2cPage.BtnSave_Click: failed profile={name} error={ex.Message}");
-            MessageBox.Show($"保存 Profile 失败：{ex.Message}");
-        }
-    }
-
-    private void BtnLoad_Click(object sender, RoutedEventArgs e)
-    {
-        if (CmbProfile.SelectedItem is not string name) { MessageBox.Show("先从下拉选择 Profile"); return; }
-        try
-        {
-            var p = ProfileService.Load(name);
-            if (p is null) { MessageBox.Show("Profile 不存在"); return; }
-            RegTable.Clear();
-            foreach (var r in p.RegTable) RegTable.Add(r);
-            InitSeq.Clear();
-            foreach (var r in p.InitSequence) InitSeq.Add(r);
-            Dbg.Log($"I2cPage.BtnLoad_Click: profile={name}");
-        }
-        catch (Exception ex)
-        {
-            Dbg.Log($"I2cPage.BtnLoad_Click: failed profile={name} error={ex.Message}");
-            MessageBox.Show($"载入 Profile 失败：{ex.Message}");
-        }
-    }
-
-    private void BtnDelete_Click(object sender, RoutedEventArgs e)
-    {
-        if (CmbProfile.SelectedItem is not string name) return;
-        if (MessageBox.Show($"删除 Profile“{name}”？", "确认删除",
-                MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
-            return;
-        Dbg.Log($"I2cPage.BtnDelete_Click: profile={name}");
-        try
-        {
-            ProfileService.Delete(name);
-            RefreshProfiles();
-        }
-        catch (Exception ex)
-        {
-            Dbg.Log($"I2cPage.BtnDelete_Click: failed profile={name} error={ex.Message}");
-            MessageBox.Show($"删除 Profile 失败：{ex.Message}");
-        }
+        if (e.Key != Key.Enter || _operationBusy || !BtnRead.IsEnabled) return;
+        e.Handled = true;
+        BtnRead_Click(BtnRead, new RoutedEventArgs());
     }
 
     private async void CmbCtrlMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
+        _loading = true;
         RebuildChannelItems();
         UpdateSpeedControlsEnabled();
-        SaveSettings();
-        await App.Bus.ApplyConfigAsync(App.Settings.Channel, CurrentHz(), CurrentCtrlMode());
+        _loading = false;
+        await ApplyCurrentConfigAsync();
     }
 
     private async void CmbSpeed_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
-        SaveSettings();
-        await App.Bus.ApplyConfigAsync(App.Settings.Channel, CurrentHz(), CurrentCtrlMode());
+        await ApplyCurrentConfigAsync();
     }
 
     private async void CmbChannel_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
-        SaveSettings();
-        await App.Bus.ApplyConfigAsync(App.Settings.Channel, CurrentHz(), CurrentCtrlMode());
+        await ApplyCurrentConfigAsync();
     }
 
-    // 开关切换必须立即持久化并下发：否则设置里残留非标频率，切页回来 RestoreSettings 又把开关打开
+    // 开关切换在驱动接受后持久化，失败时恢复原配置，避免下次启动读取到未生效的速率。
     private async void TglNonStd_Changed(object sender, RoutedEventArgs e)
     {
         UpdateSpeedControlsEnabled();
         if (_loading) return;
-        SaveSettings();
-        await App.Bus.ApplyConfigAsync(App.Settings.Channel, CurrentHz(), CurrentCtrlMode());
+        await ApplyCurrentConfigAsync();
     }
 
     private async void BtnApplyHz_Click(object sender, RoutedEventArgs e)
     {
-        SaveSettings();
-        int ret = await App.Bus.ApplyConfigAsync(App.Settings.Channel, CurrentHz(), CurrentCtrlMode());
-        App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", $"速率切换 {CurrentHz() / 1000} kHz", "—", ret, 0,
+        uint requestedHz = CurrentHz();
+        int ret = await ApplyCurrentConfigAsync();
+        App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", $"速率切换 {requestedHz / 1000} kHz", "—", ret, 0,
             ret == 0 ? null : System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(ret))));
+    }
+
+    /// <summary>配置先下发后持久化。硬件拒绝新参数时恢复控件，保证显示、设置和驱动三者一致。</summary>
+    private async Task<int> ApplyCurrentConfigAsync()
+    {
+        try
+        {
+            int ret = await App.Bus.ApplyConfigAsync(CurrentChannel(), CurrentHz(), CurrentCtrlMode());
+            if (ret == 0)
+            {
+                SaveSettings();
+                return ret;
+            }
+
+            RestoreConfigControlsFromBus();
+            SetLastTransactionStatus($"配置切换失败 · {GinkgoDriver.ErrorName(ret)}，已恢复原配置", "StatusErrorBrush");
+#if DEBUG
+            Dbg.Log($"I2cPage.ApplyCurrentConfigAsync: rejected ret={ret}; controls restored from active bus config");
+#endif
+            return ret;
+        }
+        catch (Exception ex)
+        {
+            RestoreConfigControlsFromBus();
+            SetLastTransactionStatus($"配置无效 · {ex.Message}", "StatusErrorBrush");
+#if DEBUG
+            Dbg.Log($"I2cPage.ApplyCurrentConfigAsync: invalid config error={ex.Message}");
+#endif
+            return -1;
+        }
+    }
+
+    private void RestoreConfigControlsFromBus()
+    {
+        _loading = true;
+        try
+        {
+            CmbCtrlMode.SelectedIndex = App.Bus.ControlMode == GinkgoDriver.VII_SCTL_MODE ? 1 : 0;
+            RebuildChannelItems();
+            CmbChannel.SelectedIndex = Math.Clamp(App.Bus.Channel, 0, CmbChannel.Items.Count - 1);
+
+            uint activeHz = App.Bus.ClockHz;
+            int speedIndex = Array.IndexOf(new uint[] { 100000, 400000, 1000000, 1200000 }, activeHz);
+            if (speedIndex >= 0)
+            {
+                TglNonStd.IsChecked = false;
+                CmbSpeed.SelectedIndex = speedIndex;
+            }
+            else
+            {
+                TglNonStd.IsChecked = true;
+                TxtCustomHz.Text = activeHz.ToString();
+            }
+            UpdateSpeedControlsEnabled();
+        }
+        finally { _loading = false; }
     }
 
     // ── Target Device 段 ──
 
-    private async void BtnScan_Click(object sender, RoutedEventArgs e) => await ScanBusNow();
-
     private void SetOperationBusy(bool busy, string action = "")
     {
         _operationBusy = busy;
+        _operationAction = busy ? action : string.Empty;
         Dbg.Log($"I2cPage.SetOperationBusy: busy={busy} action={action}");
         if (busy && TxtDataStatus is not null)
         {
@@ -826,29 +531,60 @@ public partial class I2cPage : UserControl
             };
             TxtDataStatus.ClearValue(TextBlock.ForegroundProperty);
         }
+        // 扫描按钮两态：扫描中变「停止」并保持可点击（点击 = 中止），读写忙碌时仍由处理器拦截
+        bool scanBusy = busy && action == "scan";
+        if (PnlScanNormal is not null && PnlScanCancel is not null)
+        {
+            PnlScanNormal.Visibility = scanBusy ? Visibility.Collapsed : Visibility.Visible;
+            PnlScanCancel.Visibility = scanBusy ? Visibility.Visible : Visibility.Collapsed;
+        }
         UpdateOperationAvailability();
+        bool reading = busy && action == "read";
+        bool writing = busy && action == "write";
+        BtnRead.Content = reading ? "读取中…" : _readButtonContent;
+        BtnWrite.Content = writing ? "写入中…" : _writeButtonContent;
+        if (reading) BtnRead.ToolTip = "正在读取数据…";
+        if (writing) BtnWrite.ToolTip = "正在写入数据…";
     }
 
     private Stopwatch? _scanSw;
+    private bool _scanTargetsChanged;
+
+    /// <summary>扫描命中回调（后台线程）：编组到 UI 即时入目标下拉，扫描进行中就能选用已发现地址。</summary>
+    private void OnScanHit(byte address)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            Dispatcher.BeginInvoke(() => OnScanHit(address));
+            return;
+        }
+        bool known = Targets.Any(target => target.Address7 == address);
+        UpsertTarget(address, persist: !_scanning);
+        if (!known && _scanning) _scanTargetsChanged = true;
+    }
 
     /// <summary>扫描回调来自后台线程；只更新界面，不写高频调试日志。</summary>
     private void UpdateScanProgress(int done, int total)
     {
         if (!Dispatcher.CheckAccess())
         {
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
             Dispatcher.BeginInvoke(() => UpdateScanProgress(done, total));
             return;
         }
         if (!_scanning || TxtDataStatus is null) return;
         double secs = _scanSw?.Elapsed.TotalSeconds ?? 0;
-        TxtDataStatus.Text = $"扫描中 {done} / {total} · {secs:F1}s";
+        int percent = total > 0 ? (int)Math.Round(done * 100.0 / total) : 0;
+        TxtDataStatus.Text = $"扫描中 {done} / {total} · {percent}% · {secs:F1}s";
     }
 
     private void RefreshOperationAvailability()
     {
         if (!Dispatcher.CheckAccess())
         {
-            Dispatcher.Invoke(RefreshOperationAvailability);
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            Dispatcher.BeginInvoke(RefreshOperationAvailability);
             return;
         }
 
@@ -871,41 +607,58 @@ public partial class I2cPage : UserControl
         if (BtnScanBus is null || BtnRead is null || BtnWrite is null) return;
         bool connected = App.Bus.IsOpen;
         bool targetValid = IsTargetValid();
+        bool readReady = connected && targetValid && IsReadSizeValid();
+        bool writeReady = connected && targetValid && IsBufferValid();
         BtnScanBus.IsEnabled = connected;
-        BtnRead.IsEnabled = connected && targetValid && IsReadSizeValid();
-        BtnWrite.IsEnabled = connected && targetValid && IsBufferValid();
+        BtnRead.IsEnabled = readReady;
+        BtnWrite.IsEnabled = writeReady;
         // 读写是同级协议动作；风险由写入确认表达，不把协议类型固定映射为 Primary。
         BtnWrite.Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary;
         // 忙碌时保留启用外观，避免 Wpf.Ui 的禁用/启用动画造成视觉抖动；
         // 点击和快捷键仍由 IsHitTestVisible 与 _operationBusy 双重拦截。
-        BtnScanBus.IsHitTestVisible = !_operationBusy;
+        // 扫描按钮例外：扫描中必须可点击用于中止。
+        BtnScanBus.IsHitTestVisible = true;
         BtnRead.IsHitTestVisible = !_operationBusy;
         BtnWrite.IsHitTestVisible = !_operationBusy;
         string? unavailableTip = !connected ? "请先在左侧工作区连接适配器"
             : _operationBusy ? "总线忙碌，请稍候"
             : null;
-        BtnScanBus.ToolTip = unavailableTip ?? "扫描当前通道上的从机地址 (F5)";
-        BtnRead.ToolTip = unavailableTip ?? "读取数据 (Ctrl+R)";
-        BtnWrite.ToolTip = unavailableTip ?? "写入数据 (Ctrl+W)";
+        BtnScanBus.ToolTip = unavailableTip ?? "扫描当前通道上的从机地址 (F5)；扫描中按 F5、Esc 或点击可中止";
+        BtnRead.ToolTip = unavailableTip ?? (!targetValid ? "请先修正目标地址或寄存器" : !IsReadSizeValid() ? "读取长度应为 1–256" : "读取数据 (Ctrl+R)");
+        BtnWrite.ToolTip = unavailableTip ?? (!targetValid ? "请先修正目标地址或寄存器" : !IsBufferValid() ? "请先输入有效 HEX 数据" : "写入数据 (Ctrl+W)");
     }
 
     private async Task ScanBusNow()
     {
-        if (_scanning || !BtnScanBus.IsEnabled) return;
+        if (_scanning) return;
         _scanning = true;
+        var cts = _scanCts = new CancellationTokenSource();
+        bool wasCancelled = false;
+        bool scanFailed = false;
+        int cancelledHitCount = 0;
+        string selectedAddress = string.Empty;
+        _scanTargetsChanged = false;
         SetOperationBusy(true, "scan");
+        // 扫描按钮接管焦点，避免此前编辑的数据缓冲区继续显示整条焦点边框。
+        BtnScanBus.Focus();
         Dbg.Log($"I2cPage.ScanBusNow: start channel={App.Settings.Channel}");
         try
         {
             var sw = _scanSw = Stopwatch.StartNew();
-            var found = await App.Bus.ScanBusAsync(progress: UpdateScanProgress);
+            // 命中地址流式进目标下拉（hit 回调来自后台线程，经 Dispatcher 编排；AddScannedTargets 幂等，收尾不重复）
+            var found = await App.Bus.ScanBusAsync(progress: UpdateScanProgress, hit: OnScanHit, ct: cts.Token);
+            wasCancelled = cts.IsCancellationRequested;
+            cancelledHitCount = found.Count;
             int channel = App.Settings.Channel;
-            bool canScanAlternate = CurrentCtrlMode() == GinkgoDriver.VII_HCTL_MODE && channel is 0 or 1;
+            bool canScanAlternate = !cts.Token.IsCancellationRequested &&
+                CurrentCtrlMode() == GinkgoDriver.VII_HCTL_MODE && channel is 0 or 1;
             if (found.Count == 0 && canScanAlternate)
             {
                 int other = 1 - channel;
                 TxtDataStatus.Text = $"当前通道未命中，正在扫描备用通道 {other}";
-                var otherFound = await App.Bus.ScanBusAsync(progress: UpdateScanProgress, channel: other);
+                var otherFound = await App.Bus.ScanBusAsync(progress: UpdateScanProgress, channel: other, hit: OnScanHit, ct: cts.Token);
+                wasCancelled = cts.IsCancellationRequested;
+                cancelledHitCount += otherFound.Count;
                 sw.Stop();
                 if (otherFound.Count == 1)
                 {
@@ -918,18 +671,14 @@ public partial class I2cPage : UserControl
                     if (configRet != 0) throw new InvalidOperationException($"切换到通道 {other} 失败：{GinkgoDriver.ErrorName(configRet)}");
                     int displayAddress = CmbAddrFmt.SelectedIndex == 1 ? otherFound[0] << 1 : otherFound[0];
                     TxtAddr.Text = $"{displayAddress:X2}";
+                    selectedAddress = DisplayAddress(otherFound[0]);
                     SaveSettings();
                     Dbg.Log($"I2cPage.ScanBusNow: auto selected alternate channel={other} addr=0x{otherFound[0]:X2}");
                 }
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描",
-                    "—", 0, sw.Elapsed.TotalMilliseconds, otherFound.Select(ToDisplayAddressByte).ToArray()));
-                AddScannedTargets(otherFound);
+                    "—", 0, sw.Elapsed.TotalMilliseconds, ScanHitText(otherFound)));
+                AddScannedTargets(otherFound, persist: false);
                 Dbg.Log($"I2cPage.ScanBusNow: alternate channel={other} hits={otherFound.Count} totalMs={sw.Elapsed.TotalMilliseconds:F1}");
-                TxtDataStatus.Text = otherFound.Count == 0
-                    ? "扫描完成，未发现从机"
-                    : otherFound.Count == 1
-                        ? $"扫描完成，已选中 {DisplayAddress(otherFound[0])}"
-                        : $"扫描完成，发现 {otherFound.Count} 个从机，结果见事务日志";
             }
             else
             {
@@ -938,30 +687,43 @@ public partial class I2cPage : UserControl
                 {
                     int displayAddress = CmbAddrFmt.SelectedIndex == 1 ? found[0] << 1 : found[0];
                     TxtAddr.Text = $"{displayAddress:X2}";
+                    selectedAddress = DisplayAddress(found[0]);
                     SaveSettings();
                     Dbg.Log($"I2cPage.ScanBusNow: auto selected 0x{found[0]:X2}");
                 }
                 App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描",
-                    "—", 0, sw.Elapsed.TotalMilliseconds, found.Select(ToDisplayAddressByte).ToArray()));
-                AddScannedTargets(found);
+                    "—", 0, sw.Elapsed.TotalMilliseconds, ScanHitText(found)));
+                AddScannedTargets(found, persist: false);
             }
-            if (found.Count != 0)
-                TxtDataStatus.Text = found.Count == 1
-                    ? $"扫描完成，已选中 {DisplayAddress(found[0])}"
-                    : $"扫描完成，发现 {found.Count} 个从机，结果见事务日志";
-            TxtDataStatus.ClearValue(TextBlock.ForegroundProperty);
+            // 状态栏保留扫描结论；快速扫描不能只闪过一次，用户应立即知道下一步。
         }
         catch (Exception ex)
         {
+            scanFailed = true;
             App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "总线扫描", "—", -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
             SetLastTransactionStatus("扫描失败，详情见事务日志", "StatusErrorBrush");
         }
         finally
         {
+            if (_scanTargetsChanged) PersistTargets();
             _scanning = false;
+            _scanCts = null;
+            cts.Dispose();
             SetOperationBusy(false);
-            Dbg.Log("I2cPage.ScanBusNow: end");
+            if (wasCancelled)
+                SetLastTransactionStatus($"扫描已停止 · 已发现 {cancelledHitCount} 个地址");
+            else if (!scanFailed)
+            {
+                string summary = cancelledHitCount switch
+                {
+                    0 => "扫描完成 · 未发现从机，请检查连线、供电、地址和通道",
+                    1 => $"扫描完成 · 找到 1 个地址，已设为目标 {selectedAddress}",
+                    _ => $"扫描完成 · 找到 {cancelledHitCount} 个地址，可从目标列表切换"
+                };
+                SetLastTransactionStatus(summary, cancelledHitCount > 0 ? "StatusSuccessBrush" : null);
+            }
+            Dbg.Log($"I2cPage.ScanBusNow: end cancelled={wasCancelled} failed={scanFailed} hits={cancelledHitCount}");
         }
     }
 
@@ -970,6 +732,18 @@ public partial class I2cPage : UserControl
         ValidateTargetInputs();
         ResetDataHint();
         if (!_loading) App.Settings.LastAddr = TxtAddr.Text;
+        SyncSlaveFromMain();
+    }
+
+    // 主面板地址与扩展面板从机地址是同一个目标，双向同步；否则扫描选中后扩展操作会打到旧地址
+    private bool _syncingSlaveAddr;
+
+    private void SyncSlaveFromMain()
+    {
+        if (_syncingSlaveAddr || TxtSlave is null || TxtSlave.Text == TxtAddr.Text) return;
+        _syncingSlaveAddr = true;
+        try { TxtSlave.Text = TxtAddr.Text; }
+        finally { _syncingSlaveAddr = false; }
     }
 
     private void TxtSubAddr_TextChanged(object sender, TextChangedEventArgs e)
@@ -990,18 +764,12 @@ public partial class I2cPage : UserControl
     private void CmbAddrFmt_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_loading) return;
-        // 地址文本随格式换算：7 位 v ↔ 8 位 v<<1（8 位含读写位，右移时读写位丢弃）
+        // 地址文本随格式换算：7 位 v ↔ 8 位 v<<1（8 位含读写位，右移时读写位丢弃）。
+        // 只换算主面板地址，TxtSlave 经 SyncSlaveFromMain 自动跟随，避免二次换算。
         if (Hex.TryParseByte(TxtAddr.Text, out var v))
         {
             byte nv = CmbAddrFmt.SelectedIndex == 1 ? (v <= 0x7F ? (byte)(v << 1) : v) : (byte)(v >> 1);
             TxtAddr.Text = $"{nv:X2}";
-        }
-        if (Hex.TryParseByte(TxtSlave.Text, out var extAddress))
-        {
-            byte nv = CmbAddrFmt.SelectedIndex == 1
-                ? (extAddress <= 0x7F ? (byte)(extAddress << 1) : extAddress)
-                : (byte)(extAddress >> 1);
-            TxtSlave.Text = $"{nv:X2}";
         }
         UpdateExtAddressFormatHint();
         RefreshTargetDisplays();
@@ -1027,12 +795,15 @@ public partial class I2cPage : UserControl
         bool registerValid = string.IsNullOrWhiteSpace(TxtSubAddr.Text) ||
                              Hex.TryParseByte(TxtSubAddr.Text, out _);
         if (addressValid) TxtAddr.ClearValue(Control.BorderBrushProperty);
-        else TxtAddr.BorderBrush = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+        else TxtAddr.BorderBrush = ErrorBorderBrush;
         if (registerValid) TxtSubAddr.ClearValue(Control.BorderBrushProperty);
-        else TxtSubAddr.BorderBrush = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
-        TxtAddr.ToolTip = CmbAddrFmt?.SelectedIndex == 1
-            ? "8-bit 地址：00–FF，例如 92"
-            : "7-bit 地址：00–7F，例如 49";
+        else TxtSubAddr.BorderBrush = ErrorBorderBrush;
+        TxtAddr.ToolTip = addressValid
+            ? CmbAddrFmt?.SelectedIndex == 1 ? "8-bit 地址有效，例如 92" : "7-bit 地址有效，例如 49"
+            : CmbAddrFmt?.SelectedIndex == 1 ? "地址无效：8-bit 地址须为偶数 HEX 值，例如 92" : "地址无效：请输入 00–7F，例如 49";
+        TxtSubAddr.ToolTip = registerValid
+            ? "寄存器地址有效；留空时为原始读写"
+            : "寄存器地址无效：请输入 00–FF，或留空使用原始读写";
         UpdateOperationAvailability();
     }
 
@@ -1045,10 +816,25 @@ public partial class I2cPage : UserControl
             SetLastTransactionStatus(inputError, "StatusErrorBrush");
             return;
         }
-        SetLastTransactionStatus(App.Bus.IsOpen
-            ? "参数已更新，可以读取或写入"
-            : "请先在左侧工作区连接适配器");
+        if (!IsBufferValid())
+        {
+            SetLastTransactionStatus("读取就绪 · 数据格式错误将阻止写入");
+            return;
+        }
+        if (!App.Bus.IsOpen)
+        {
+            SetLastTransactionStatus("请先在左侧工作区连接适配器");
+            return;
+        }
+
+        string route = string.IsNullOrWhiteSpace(TxtSubAddr.Text)
+            ? "原始收发"
+            : $"寄存器 0x{TxtSubAddr.Text.Trim().ToUpperInvariant()}";
+        string verification = ChkWriteRead.IsChecked == true ? " · 写后读取" : string.Empty;
+        SetLastTransactionStatus($"就绪 · {route} · {TxtReadSize.Text.Trim()} B{verification}");
     }
+
+    private void TransactionContext_Changed(object sender, RoutedEventArgs e) => ResetDataHint();
 
     /// <summary>最近一次事务状态独立于缓冲区内容，避免读写后出现陈旧的缓冲区语义。</summary>
     private void SetLastTransactionStatus(string text, string? brushResource = null)
@@ -1056,27 +842,91 @@ public partial class I2cPage : UserControl
         TxtDataStatus.Text = text;
         if (brushResource is null) TxtDataStatus.ClearValue(TextBlock.ForegroundProperty);
         else TxtDataStatus.SetResourceReference(TextBlock.ForegroundProperty, brushResource);
-        Dbg.Log($"I2cPage.SetLastTransactionStatus: text={text} brush={brushResource ?? "default"}");
+#if DEBUG
+        // 输入过程会高频刷新此状态；相同文本不重复写磁盘日志。
+        string debugText = $"{text}|{brushResource ?? "default"}";
+        if (!string.Equals(_lastStatusDebugText, debugText, StringComparison.Ordinal))
+        {
+            _lastStatusDebugText = debugText;
+            Dbg.Log($"I2cPage.SetLastTransactionStatus: text={text} brush={brushResource ?? "default"}");
+        }
+#endif
     }
 
-    /// <summary>缓冲区只描述当前内容格式和字节数，不承担“上次读/写”的事务状态。</summary>
-    private void UpdateBufferMeta()
+    private void SetLastTransactionSnapshot(string direction, string operation, byte address, bool hasSubAddress,
+        int length, OpResult result, byte[]? data, string? outcomeOverride = null)
     {
-        int count = Hex.ParseBytes(TxtDataBuffer.Text).Length;
-        TxtBufferMeta.Text = $"{count} 字节 · HEX";
+        string target = hasSubAddress
+            ? $"{DisplayAddress(address)}[{TxtSubAddr.Text.Trim().ToUpperInvariant()}]"
+            : $"{DisplayAddress(address)}[raw]";
+        string outcome = outcomeOverride ?? (result.Ok ? "成功" : $"失败 · {GinkgoDriver.ErrorName(result.Ret)}");
+        string payload = data is { Length: > 0 } ? BufferText(data) : "—";
+        TxtLastTransaction.Text = $"{direction} · {operation} · {target} · {length} B · {outcome} · {result.Ms:F1} ms";
+        _lastTransactionText = $"时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}{Environment.NewLine}" +
+                               $"方向: {direction}{Environment.NewLine}" +
+                               $"操作: {operation}{Environment.NewLine}" +
+                               $"目标: {target}{Environment.NewLine}" +
+                               $"长度: {length} 字节{Environment.NewLine}" +
+                               $"结果: {outcome}{Environment.NewLine}" +
+                               $"耗时: {result.Ms:F1} ms{Environment.NewLine}" +
+                               $"数据 HEX: {payload}";
+        TxtLastTransaction.ToolTip = _lastTransactionText;
+        LastTransactionPanel.Visibility = Visibility.Visible;
+#if DEBUG
+        Dbg.Log($"I2cPage.SetLastTransactionSnapshot: {direction} {operation} target={target} len={length} ret={result.Ret}");
+#endif
     }
 
-    private string? GetInputError()
+    private void SetLastTransactionFailure(string operation, string error)
+    {
+        string target = string.IsNullOrWhiteSpace(TxtSubAddr.Text)
+            ? $"{TxtAddr.Text.Trim()}[raw]"
+            : $"{TxtAddr.Text.Trim()}[{TxtSubAddr.Text.Trim()}]";
+        TxtLastTransaction.Text = $"ERR · {operation} · {target} · {error}";
+        _lastTransactionText = $"时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}{Environment.NewLine}" +
+                               $"操作: {operation}{Environment.NewLine}" +
+                               $"目标: {target}{Environment.NewLine}" +
+                               $"结果: 异常{Environment.NewLine}" +
+                               $"错误: {error}";
+        TxtLastTransaction.ToolTip = _lastTransactionText;
+        LastTransactionPanel.Visibility = Visibility.Visible;
+#if DEBUG
+        Dbg.Log($"I2cPage.SetLastTransactionFailure: operation={operation} error={error}");
+#endif
+    }
+
+    private void BtnCopyLastTransaction_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_lastTransactionText)) return;
+        try
+        {
+            Clipboard.SetText(_lastTransactionText);
+            SetLastTransactionStatus("已复制最近事务", "StatusSuccessBrush");
+#if DEBUG
+            Dbg.Log("I2cPage.BtnCopyLastTransaction_Click: copied latest transaction");
+#endif
+        }
+        catch
+        {
+            SetLastTransactionStatus("复制失败，请手动选择事务信息", "StatusErrorBrush");
+#if DEBUG
+            Dbg.Log("I2cPage.BtnCopyLastTransaction_Click: clipboard unavailable");
+#endif
+        }
+    }
+
+    private string? GetInputError(bool requireWriteData = false)
     {
         bool addressValid = Hex.TryParseByte(TxtAddr.Text, out var address) &&
-                            (CmbAddrFmt?.SelectedIndex == 1 || address <= 0x7F);
+                            (CmbAddrFmt?.SelectedIndex == 1 ? (address & 1) == 0 : address <= 0x7F);
         if (!addressValid)
             return CmbAddrFmt?.SelectedIndex == 1
-                ? "地址格式错误：8-bit 地址应为 00–FF"
+                ? "地址格式错误：8-bit 地址须为偶数 HEX 值，例如 92"
                 : "地址格式错误：7-bit 地址应为 00–7F";
         if (!string.IsNullOrWhiteSpace(TxtSubAddr.Text) && !Hex.TryParseByte(TxtSubAddr.Text, out _))
             return "寄存器地址格式错误：请输入 00–FF，或留空使用原始读写";
         if (!IsReadSizeValid()) return "读取长度应为 1–256";
+        if (!requireWriteData) return null;
         try
         {
             Hex.ParseBytes(TxtDataBuffer.Text);
@@ -1095,9 +945,27 @@ public partial class I2cPage : UserControl
     {
         if (sender == TxtReadSize && int.TryParse(TxtReadSize.Text, out int length))
             TxtReadSize.Text = length.ToString();
-        if (sender == TxtDataBuffer && IsBufferValid())
+        // 点击扫描会主动转移焦点，但扫描不是编辑操作，不能借 LostFocus 改写用户尚在准备的数据格式。
+        if (sender == TxtDataBuffer && !_scanning && IsBufferValid())
             TxtDataBuffer.Text = BufferText(Hex.ParseBytes(TxtDataBuffer.Text));
         ResetDataHint();
+#if DEBUG
+        Dbg.Log($"I2cPage.DataInput_LostFocus: source={(sender as FrameworkElement)?.Name} valid={GetInputError(requireWriteData: true) is null}");
+#endif
+    }
+
+    /// <summary>数值输入获得键盘焦点时选中当前值，方便直接替换，鼠标定位不受影响。
+    /// 事务后程序归还焦点的数据框例外：全选会让连续读取时缓冲区闪蓝，只把光标放到末尾。</summary>
+    private void Input_GotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        if (sender is not TextBox textBox) return;
+        if (Mouse.LeftButton == MouseButtonState.Pressed) return; // 保留鼠标点击位置
+        if (textBox == TxtDataBuffer && _restoringBufferFocus)
+        {
+            TxtDataBuffer.CaretIndex = TxtDataBuffer.Text.Length;
+            return;
+        }
+        Dispatcher.BeginInvoke(textBox.SelectAll);
     }
 
     /// <summary>用户输入按 Address Format 折算成 7 位地址。8 位输入右移一位。</summary>
@@ -1113,15 +981,22 @@ public partial class I2cPage : UserControl
 
     // ── Transactions 段 ──
 
+    private CancellationTokenSource? _scanCts;
+
+    private async void BtnScan_Click(object sender, RoutedEventArgs e)
+    {
+        if (_scanning)
+        {
+            _scanCts?.Cancel(); // 扫描中再点 = 中止，返回已命中的部分结果
+            return;
+        }
+        if (_operationBusy || !BtnScanBus.IsEnabled) return;
+        await ScanBusNow();
+    }
+
     private async void BtnWrite_Click(object sender, RoutedEventArgs e)
     {
         if (_operationBusy || !BtnWrite.IsEnabled) return;
-        if (MessageBox.Show($"确认向目标 {TxtAddr.Text} 写入当前 HEX 数据？", "确认写入",
-            MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
-        {
-            TxtDataStatus.Text = "已取消写入";
-            return;
-        }
         SetOperationBusy(true, "write");
         Dbg.Log($"I2cPage.BtnWrite_Click: addr={TxtAddr.Text} reg={TxtSubAddr.Text}");
         try
@@ -1137,7 +1012,7 @@ public partial class I2cPage : UserControl
                 ? $"写入成功 · {r.Ms:F1} ms"
                 : $"写入失败 · {GinkgoDriver.ErrorName(r.Ret)}",
                 r.Ok ? "StatusSuccessBrush" : "StatusErrorBrush");
-            UpdateBufferMeta();
+            SetLastTransactionSnapshot("TX", "写入", addr, hasSub, data.Length, r, data);
             App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "WRITE", DisplayAddress(addr), r.Ret, r.Ms, data));
 
             // 写后读取：写入成功后自动读回验证（同长度），结果进数据显示区
@@ -1147,22 +1022,36 @@ public partial class I2cPage : UserControl
                 var rb = hasSub
                     ? await App.Bus.ReadRegisterAsync(addr, SubAddr(), blen)
                     : await App.Bus.RawReadAsync(addr, blen);
+                bool verified = rb.Ok && rb.Data is not null && data.SequenceEqual(rb.Data);
+                string verificationDetail = rb.Ok && rb.Data is not null ? DescribeReadDelta(data, rb.Data) : string.Empty;
                 if (rb.Ok && rb.Data is not null)
-                    ShowBuffer(rb.Data);
-                SetLastTransactionStatus(rb.Ok
-                    ? $"写入并回读成功 · {rb.Ms:F1} ms"
-                    : $"写后读取失败 · {GinkgoDriver.ErrorName(rb.Ret)}",
-                    rb.Ok ? "StatusSuccessBrush" : "StatusErrorBrush");
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "写后读", DisplayAddress(addr), rb.Ret, rb.Ms, rb.Data));
+                    ShowReadBuffer(rb.Data, addr, hasSub);
+                SetLastTransactionStatus(!rb.Ok
+                    ? $"写后读取失败 · {GinkgoDriver.ErrorName(rb.Ret)}"
+                    : verified
+                        ? $"写入并回读一致 · {rb.Ms:F1} ms"
+                        : $"写入完成，但回读不一致 · {verificationDetail}",
+                    verified ? "StatusSuccessBrush" : "StatusErrorBrush");
+                SetLastTransactionSnapshot("RX", verified ? "写后读" : "写后读校验", addr, hasSub, blen, rb, rb.Data,
+                    verified ? null : rb.Ok ? $"不一致 · {verificationDetail}" : null);
+                App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", verified ? "写后读" : "写后读校验", DisplayAddress(addr), rb.Ret, rb.Ms, rb.Data));
+#if DEBUG
+                Dbg.Log($"I2cPage.BtnWrite_Click: readback ok={rb.Ok} verified={verified} detail={verificationDetail}");
+#endif
             }
         }
         catch (Exception ex)
         {
             SetLastTransactionStatus(ex.Message, "StatusErrorBrush");
+            SetLastTransactionFailure("写入", ex.Message);
             App.Log.AddCapped(new LogEntry(DateTime.Now, "TX", "WRITE", TxtAddr.Text, -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
         }
-        finally { SetOperationBusy(false); }
+        finally
+        {
+            SetOperationBusy(false);
+            RestoreTransactionFocus();
+        }
     }
 
     private async void BtnRead_Click(object sender, RoutedEventArgs e)
@@ -1180,20 +1069,49 @@ public partial class I2cPage : UserControl
                 ? await App.Bus.ReadRegisterAsync(addr, SubAddr(), len)
                 : await App.Bus.RawReadAsync(addr, len);
             if (r.Ok && r.Data is not null)
-                ShowBuffer(r.Data);
+                ShowReadBuffer(r.Data, addr, hasSub);
             SetLastTransactionStatus(r.Ok
                 ? $"读取成功 · {r.Ms:F1} ms"
                 : $"读取失败 · {GinkgoDriver.ErrorName(r.Ret)}",
                 r.Ok ? "StatusSuccessBrush" : "StatusErrorBrush");
+            SetLastTransactionSnapshot("RX", "读取", addr, hasSub, len, r, r.Data);
             App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "READ", DisplayAddress(addr), r.Ret, r.Ms, r.Data));
         }
         catch (Exception ex)
         {
             SetLastTransactionStatus(ex.Message, "StatusErrorBrush");
+            SetLastTransactionFailure("读取", ex.Message);
             App.Log.AddCapped(new LogEntry(DateTime.Now, "RX", "READ", TxtAddr.Text, -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
         }
-        finally { SetOperationBusy(false); }
+        finally
+        {
+            SetOperationBusy(false);
+            RestoreTransactionFocus();
+        }
+    }
+
+    /// <summary>事务结束后回到数据缓冲区，连续读写无需重新寻找输入位置；页面离开时不抢焦点。
+    /// 归还焦点期间抑制全选（GotKeyboardFocus），避免连续读取时缓冲区整片闪蓝。</summary>
+    private bool _restoringBufferFocus;
+
+    private void RestoreTransactionFocus()
+    {
+        if (!IsLoaded || !IsVisible || TxtDataBuffer is null) return;
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_operationBusy || !IsVisible || !TxtDataBuffer.IsEnabled) return;
+            _restoringBufferFocus = true;
+            TxtDataBuffer.Focus();
+            TxtDataBuffer.CaretIndex = TxtDataBuffer.Text.Length;
+            // GotKeyboardFocus 里的 SelectAll 以 Input 优先级排队，标志在其之后释放
+            Dispatcher.BeginInvoke(() => _restoringBufferFocus = false,
+                System.Windows.Threading.DispatcherPriority.Input);
+#if DEBUG
+            Dbg.Log("I2cPage.RestoreTransactionFocus: data buffer focused after transaction");
+#endif
+        });
     }
 
     private bool IsBufferValid()
@@ -1207,58 +1125,166 @@ public partial class I2cPage : UserControl
 
     private void TxtDataBuffer_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (TxtBufferMeta is null) return;
         try
         {
-            int count = Hex.ParseBytes(TxtDataBuffer.Text).Length;
-            TxtBufferMeta.Text = $"{count} 字节 · HEX";
+            byte[] data = Hex.ParseBytes(TxtDataBuffer.Text);
             TxtDataBuffer.ClearValue(Control.BorderBrushProperty);
-            if (!_operationBusy && BtnWrite is not null) BtnWrite.IsEnabled = count > 0;
+            if (!_operationBusy && BtnWrite is not null) BtnWrite.IsEnabled = data.Length > 0;
+            UpdateBufferPresentation(data);
         }
         catch
         {
-            TxtBufferMeta.Text = "HEX 格式错误";
-            TxtDataBuffer.BorderBrush = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+            TxtDataBuffer.BorderBrush = ErrorBorderBrush;
             if (!_operationBusy && BtnWrite is not null) BtnWrite.IsEnabled = false;
+            UpdateBufferPresentation(null, invalid: true);
         }
         ResetDataHint();
         UpdateOperationAvailability();
     }
 
-    private void ShowBuffer(byte[] data)
+    private void ShowReadBuffer(byte[] data, byte address, bool hasRegister)
+    {
+        byte? register = hasRegister ? SubAddr() : null;
+        bool sameContext = _lastReadData is not null &&
+            _lastReadAddress == address &&
+            _lastReadHasRegister == hasRegister &&
+            _lastReadRegister == register;
+        string? comparison = sameContext ? DescribeReadDelta(_lastReadData!, data) : null;
+        _lastReadData = (byte[])data.Clone();
+        _lastReadAddress = address;
+        _lastReadRegister = register;
+        _lastReadHasRegister = hasRegister;
+        ShowBuffer(data, comparison);
+#if DEBUG
+        Dbg.Log($"I2cPage.ShowReadBuffer: addr={DisplayAddress(address)} reg={(register.HasValue ? register.Value.ToString("X2") : "—")} bytes={data.Length} comparison={comparison ?? "baseline"}");
+#endif
+    }
+
+    private void ShowBuffer(byte[] data, string? comparison = null)
     {
         TxtDataBuffer.Text = BufferText(data);
-        UpdateBufferMeta();
+        UpdateBufferPresentation(data, comparison: comparison);
+#if DEBUG
+        Dbg.Log($"I2cPage.ShowBuffer: bytes={data.Length}");
+#endif
+    }
+
+    /// <summary>HEX 编辑区旁的只读文本提示；保留原数据，非可打印字节不伪装为 ASCII 字符。</summary>
+    private void UpdateBufferPresentation(byte[]? data, bool invalid = false, string? comparison = null)
+    {
+        if (TxtBufferMeta is null || TxtBufferAscii is null || TxtBufferDelta is null) return;
+        if (invalid)
+        {
+            TxtBufferMeta.Text = "HEX 格式无效";
+            TxtBufferAscii.Text = "ASCII · —";
+            TxtBufferAscii.ToolTip = "请先修正 HEX 数据";
+            TxtBufferDelta.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        TxtBufferMeta.Text = $"{data?.Length ?? 0} B";
+        string preview = data is { Length: > 0 } ? AsciiPreview(data) : "—";
+        TxtBufferAscii.Text = $"ASCII · {preview}";
+        TxtBufferAscii.ToolTip = TxtBufferAscii.Text;
+        TxtBufferDelta.Text = comparison ?? string.Empty;
+        TxtBufferDelta.ToolTip = comparison ?? string.Empty;
+        TxtBufferDelta.Visibility = string.IsNullOrEmpty(comparison) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    public static string AsciiPreview(byte[] data)
+    {
+        const int maxPreviewBytes = 96;
+        int length = Math.Min(data.Length, maxPreviewBytes);
+        var chars = new char[length];
+        for (int i = 0; i < length; i++)
+            chars[i] = data[i] is >= 0x20 and <= 0x7E ? (char)data[i] : '·';
+        return new string(chars) + (data.Length > maxPreviewBytes ? "…" : string.Empty);
+    }
+
+    /// <summary>同一读取上下文的两份数据对比；偏移按零基 HEX 表示，便于直接定位寄存器窗口。</summary>
+    public static string DescribeReadDelta(byte[] previous, byte[] current)
+    {
+        if (previous.Length != current.Length)
+            return $"长度由 {previous.Length} B 变为 {current.Length} B";
+
+        var changed = new List<int>();
+        for (int i = 0; i < current.Length; i++)
+            if (previous[i] != current[i]) changed.Add(i);
+        if (changed.Count == 0) return "与上次读取相同";
+
+        const int previewLimit = 6;
+        string offsets = string.Join("、", changed.Take(previewLimit).Select(index => $"0x{index:X2}"));
+        string suffix = changed.Count > previewLimit ? $" 等 {changed.Count} 处" : string.Empty;
+        return $"变化 {changed.Count} B · {offsets}{suffix}";
     }
 
     private void TxtReadSize_TextChanged(object sender, TextChangedEventArgs e)
     {
         bool valid = IsReadSizeValid();
         if (valid) TxtReadSize.ClearValue(Control.BorderBrushProperty);
-        else TxtReadSize.BorderBrush = new SolidColorBrush(Color.FromRgb(0xef, 0x53, 0x50));
+        else TxtReadSize.BorderBrush = ErrorBorderBrush;
         ResetDataHint();
         UpdateOperationAvailability();
     }
 
     private void I2cPage_PreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // 扫描占用总线时仍保留键盘取消路径，避免用户必须切回鼠标点击「停止」。
+        if (_scanning && (e.Key is Key.F5 or Key.Escape))
+        {
+            _scanCts?.Cancel();
+            e.Handled = true;
+#if DEBUG
+            Dbg.Log($"I2cPage.I2cPage_PreviewKeyDown: scan cancel via {e.Key}");
+#endif
+            return;
+        }
         if (_operationBusy) return;
         if (e.Key == Key.F5 && BtnScanBus.IsEnabled)
+        {
             BtnScan_Click(BtnScanBus, new RoutedEventArgs());
-        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R && BtnRead.IsEnabled)
+            e.Handled = true;
+        }
+        // 文本编辑时保留 Ctrl 组合键给输入控件，避免用户修正 HEX 时误发总线操作。
+        else if (!IsEditingText() && Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.R && BtnRead.IsEnabled)
+        {
             BtnRead_Click(BtnRead, new RoutedEventArgs());
-        else if (Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.W && BtnWrite.IsEnabled)
+            e.Handled = true;
+        }
+        else if (!IsEditingText() && Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.W && BtnWrite.IsEnabled)
+        {
             BtnWrite_Click(BtnWrite, new RoutedEventArgs());
+            e.Handled = true;
+        }
+        else if (!IsEditingOrSelectingData() && Keyboard.Modifiers == ModifierKeys.Control && e.Key == Key.C && _lastTransactionText is not null)
+        {
+            BtnCopyLastTransaction_Click(BtnCopyLastTransaction, new RoutedEventArgs());
+            e.Handled = true;
+        }
         else
             return;
         e.Handled = true;
     }
+
+    private static bool IsEditingText() =>
+        Keyboard.FocusedElement is TextBoxBase or ComboBox;
+
+    /// <summary>表格和日志有自己的 Ctrl+C 语义，页面快捷键不能覆盖用户当前选择。</summary>
+    private bool IsEditingOrSelectingData() =>
+        IsEditingText() || LogView.IsKeyboardFocusWithin || GridReg.IsKeyboardFocusWithin || GridInit.IsKeyboardFocusWithin;
 
     internal static string BufferText(byte[] data) =>
         string.Join(" ", Convert.ToHexString(data).Chunk(2).Select(c => new string(c)));
 
     private static byte ToDisplayAddressByte(byte address7) =>
         App.Settings.AddrFmt == 1 ? (byte)(address7 << 1) : address7;
+
+    /// <summary>扫描 SYS 日志的数据负载：可读文本（当前地址格式），空数组表示未命中。</summary>
+    private static byte[] ScanHitText(IReadOnlyCollection<byte> addresses) =>
+        addresses.Count == 0
+            ? []
+            : System.Text.Encoding.UTF8.GetBytes(
+                $"命中 {addresses.Count} 个 · " + string.Join("  ", addresses.Select(a => $"0x{ToDisplayAddressByte(a):X2}")));
 
     internal static string Grouped(byte[] data) =>
         "0x" + string.Join(".", Convert.ToHexString(data).Chunk(2).Select(c => new string(c)));
@@ -1268,24 +1294,25 @@ public partial class I2cPage : UserControl
     {
         if (sender is System.Windows.Controls.GridSplitter { Parent: Grid grid })
         {
-            grid.ColumnDefinitions[0].Width = new GridLength(480);
+            grid.ColumnDefinitions[2].Width = new GridLength(480);
             App.Settings.ExtPanelWidth = 480;
             App.Settings.Save();
-            Dbg.Log("I2cPage.Splitter_DoubleClick: reset extension width to 480");
+            Dbg.Log("I2cPage.Splitter_DoubleClick: reset right inspector width to 480");
         }
     }
 
     private void LogSplitter_DoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (sender is not GridSplitter { Parent: Grid grid }) return;
-        grid.RowDefinitions[0].Height = new GridLength(_wideLayout ? 1 : 13, GridUnitType.Star);
-        grid.RowDefinitions[2].Height = _wideLayout ? GridLength.Auto : new GridLength(7, GridUnitType.Star);
+        const double logRatio = 0.65;
+        grid.RowDefinitions[0].Height = new GridLength(1 - logRatio, GridUnitType.Star);
+        grid.RowDefinitions[2].Height = new GridLength(logRatio, GridUnitType.Star);
         if (!_wideLayout)
         {
-            App.Settings.LogPanelRatio = 0.65;
+            App.Settings.LogPanelRatio = logRatio;
             App.Settings.Save();
         }
-        Dbg.Log($"I2cPage.LogSplitter_DoubleClick: reset wide={_wideLayout}");
+        Dbg.Log($"I2cPage.LogSplitter_DoubleClick: reset editor/log ratio={1 - logRatio:F2}/{logRatio:F2} wide={_wideLayout}");
         e.Handled = true;
     }
 

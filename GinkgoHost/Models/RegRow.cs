@@ -17,6 +17,10 @@ public sealed class RegRow : INotifyPropertyChanged
     private string _status = "";
     private bool _polling;
     private int _pollCount;
+    private bool _canExecute;
+    private string _executeText = "执行";
+    private string _executeToolTip = "执行此行";
+    private bool _snapshotChanged;
 
     public string Reg { get => _reg; set { _reg = value; OnPropertyChanged(); } }
     public int Len { get => _len; set { _len = value; OnPropertyChanged(); } }
@@ -41,6 +45,21 @@ public sealed class RegRow : INotifyPropertyChanged
     /// <summary>本轮周期轮询已执行次数，显示在执行按钮上。</summary>
     [JsonIgnore]
     public int PollCount { get => _pollCount; set { _pollCount = value; OnPropertyChanged(); } }
+
+    /// <summary>行内操作可用性；轮询行在全局操作锁定时仍可点击停止。</summary>
+    [JsonIgnore]
+    public bool CanExecute { get => _canExecute; set { _canExecute = value; OnPropertyChanged(); } }
+
+    /// <summary>行内操作文本与提示，不依赖虚拟化 DataGrid 单元格实例。</summary>
+    [JsonIgnore]
+    public string ExecuteText { get => _executeText; set { _executeText = value; OnPropertyChanged(); } }
+
+    [JsonIgnore]
+    public string ExecuteToolTip { get => _executeToolTip; set { _executeToolTip = value; OnPropertyChanged(); } }
+
+    /// <summary>最近一次“读取全部”相对当前快照发生变化；只驱动界面，不落盘。</summary>
+    [JsonIgnore]
+    public bool SnapshotChanged { get => _snapshotChanged; set { _snapshotChanged = value; OnPropertyChanged(); } }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 

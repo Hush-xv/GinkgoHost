@@ -4,52 +4,104 @@
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:views="clr-namespace:GinkgoHost.Views">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="12,8,12,20" MaxWidth="960" HorizontalAlignment="Left">
+        <StackPanel Margin="{StaticResource PageContentMargin}" MaxWidth="960" HorizontalAlignment="Center">
 
             <TextBlock Text="设备概览" Style="{StaticResource PageTitleStyle}" />
-            <TextBlock Text="查看当前适配器状态、能力与接口定义" Style="{StaticResource PageSubtitleStyle}" />
+            <TextBlock Text="查看当前适配器状态、能力与接口定义 · Ctrl+1" Style="{StaticResource PageSubtitleStyle}" />
+
+            <TextBlock Text="连接状态" Style="{StaticResource SectionTitleStyle}" />
+            <ui:Card Margin="0,0,0,20" Padding="16,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="硬件连接" FontSize="10" Opacity="0.48" Margin="0,0,0,3" />
+                        <TextBlock x:Name="TxtDevState" Text="未连接" FontSize="18" FontWeight="SemiBold" />
+                        <TextBlock x:Name="TxtConnectionHint" Text="检查 USB 连接后开始扫描。"
+                                   FontSize="12" Opacity="0.62" Margin="0,4,0,0" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <Border Grid.Column="1" HorizontalAlignment="Right" Margin="24,0,0,0" Padding="10,6" CornerRadius="6"
+                            Background="{DynamicResource ControlFillColorSecondaryBrush}"
+                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
+                        <StackPanel>
+                            <TextBlock Text="检测到的适配器" FontSize="10" Opacity="0.56" HorizontalAlignment="Right" />
+                            <TextBlock x:Name="TxtCount" Text="未检测到" FontSize="14" FontWeight="SemiBold"
+                                       HorizontalAlignment="Right" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </Border>
+                    <!-- 设备页直达连接动作：复用主窗口连接链路，导航收起时仍能完成首次连接。 -->
+                    <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,12,0,0">
+                        <ui:Button x:Name="BtnDeviceConnect" Content="连接适配器" Appearance="Primary" Click="BtnDeviceConnect_Click"
+                                   HorizontalAlignment="Right" MinWidth="108" MinHeight="34" ToolTip="扫描并连接已检测到的适配器" />
+                        <TextBlock x:Name="TxtAdapterHint" Margin="0,0,120,0" FontSize="11"
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   Text="检测到适配器后，可直接连接并开始调试。" />
+                    </Grid>
+                </Grid>
+            </ui:Card>
 
             <TextBlock Text="设备信息" Style="{StaticResource SectionTitleStyle}" />
-            <ui:Card Margin="0,0,0,14" Padding="12,10">
+            <ui:Card Margin="0,0,0,20" Padding="16,14">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition />
                     </Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
-                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                        <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <TextBlock Text="适配器" Opacity="0.65" Margin="0,0,32,8" />
-                    <TextBlock x:Name="TxtModel" Grid.Column="1" Text="—" />
+                    <TextBlock x:Name="TxtModel" Grid.Column="1" Text="—" TextTrimming="CharacterEllipsis" />
                     <TextBlock Text="序列号" Grid.Row="1" Opacity="0.65" Margin="0,0,32,8" />
-                    <TextBlock x:Name="TxtSerial" Grid.Row="1" Grid.Column="1" FontFamily="Consolas" Text="—" />
-                    <TextBlock Text="固件" Grid.Row="2" Opacity="0.65" Margin="0,0,32,8" />
-                    <TextBlock x:Name="TxtFirmware" Grid.Row="2" Grid.Column="1" FontFamily="Consolas" Text="—" />
-                    <TextBlock Text="驱动" Grid.Row="3" Opacity="0.65" Margin="0,0,32,8" />
-                    <TextBlock x:Name="TxtDriver" Grid.Row="3" Grid.Column="1" Text="—" />
-                    <TextBlock Text="适配器数" Grid.Row="4" Opacity="0.65" Margin="0,0,32,8" />
-                    <TextBlock x:Name="TxtCount" Grid.Row="4" Grid.Column="1" Text="—" />
-                    <TextBlock Text="状态" Grid.Row="5" Opacity="0.65" Margin="0,0,32,8" />
-                    <TextBlock x:Name="TxtDevState" Grid.Row="5" Grid.Column="1" Text="未连接" />
-                    <TextBlock Text="能力" Grid.Row="6" Opacity="0.65" Margin="0,0,32,0" />
-                    <TextBlock Grid.Row="6" Grid.Column="1" TextWrapping="Wrap"
-                               Text="I²C Master · SMBus · PMBus" />
-                    <TextBlock Grid.Row="7" Grid.Column="1" Text="I²C 实现：硬件外设 / GPIO 模拟 · I²C Slave 暂未支持"
-                               FontSize="11" Opacity="0.45" Margin="0,6,0,0" />
-                    <!-- 未发现适配器时的行动指引（D12）：扫描内建于左下「连接」动作 -->
-                    <TextBlock x:Name="TxtAdapterHint" Grid.Row="8" Grid.ColumnSpan="2" Margin="0,10,0,0" FontSize="11"
-                               Foreground="#E8C87A" TextWrapping="Wrap"
-                               Text="未发现兼容适配器 · 请检查 USB 连接，插入后点击左下「连接」自动扫描并连接" />
+                    <TextBlock x:Name="TxtSerial" Grid.Row="1" Grid.Column="1" FontFamily="Consolas" Text="—" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="固件" Grid.Row="2" Opacity="0.65" Margin="0,0,32,0" />
+                    <TextBlock x:Name="TxtFirmware" Grid.Row="2" Grid.Column="1" FontFamily="Consolas" Text="—" TextTrimming="CharacterEllipsis" />
+                    <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Orientation="Horizontal">
+                        <TextBlock x:Name="TxtDeviceInfoFeedback" FontSize="10" Opacity="0.54" VerticalAlignment="Center"
+                                   Text="连接后自动读取型号、序列号与固件信息。" />
+                        <ui:Button x:Name="BtnCopyDeviceInfo" Content="复制设备信息" Click="BtnCopyDeviceInfo_Click"
+                                   Margin="10,0,0,0" Padding="8,1" FontSize="10" IsEnabled="False"
+                                   ToolTip="复制型号、序列号、固件、驱动和当前 I²C 上下文" />
+                    </StackPanel>
                 </Grid>
             </ui:Card>
 
+            <Expander Header="诊断信息" Margin="0,0,0,20">
+                <ui:Card Padding="16,14" Margin="0,8,0,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="驱动" Opacity="0.65" Margin="0,0,32,8" />
+                        <TextBlock x:Name="TxtDriver" Grid.Column="1" Text="—" TextWrapping="Wrap" />
+                        <TextBlock Text="能力" Grid.Row="1" Opacity="0.65" Margin="0,0,32,8" />
+                        <TextBlock Grid.Row="1" Grid.Column="1" TextWrapping="Wrap" Text="I²C Master · SMBus · PMBus" />
+                        <TextBlock Text="I²C 实现" Grid.Row="2" Opacity="0.65" Margin="0,0,32,0" />
+                        <TextBlock Grid.Row="2" Grid.Column="1" TextWrapping="Wrap"
+                                   Text="硬件外设 / GPIO 模拟 · I²C Slave 暂未支持" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" FontSize="11" Opacity="0.45" Margin="0,8,0,0"
+                                   Text="驱动不提供实时电平；接线和通道标识以设备丝印为准。" />
+                    </Grid>
+                </ui:Card>
+            </Expander>
+
             <TextBlock x:Name="TxtPinoutTitle" Text="接口与引脚" Style="{StaticResource SectionTitleStyle}" />
-            <ui:Card Padding="12,10">
+            <ui:Card Padding="16,14">
                 <StackPanel>
                     <!-- 静态引脚说明（D7）：主说明 + 次级说明 + 右侧图例，不再拼成一行 -->
                     <DockPanel Margin="0,0,0,4">
                         <TextBlock DockPanel.Dock="Right" Text="● 信号线　○ 电源 / 地" FontSize="12"
-                                   Foreground="#9FB8D8" VerticalAlignment="Center" />
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
                         <TextBlock Text="静态引脚定义" FontSize="12" FontWeight="SemiBold" />
                     </DockPanel>
                     <TextBlock Text="驱动不提供实时电平 · 通道信号列表，接线以设备丝印为准"

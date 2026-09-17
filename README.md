@@ -1,148 +1,172 @@
-<div align="center">
+# GinkgoHost
 
-# ⚡ GinkgoHost
+> 面向 ViewTool Ginkgo USB–I²C 适配器的 Windows 调试工具。
 
-**ViewTool Ginkgo USB-I2C 适配器的现代化上位机**
+GinkgoHost 将连接、读写、地址扫描、周期读取和事务证据流放进一个 WPF 桌面应用。它适合在 bring-up、寄存器验证和现场定位中快速确认一条 I²C 总线的状态。
 
-复刻 [Binho Mission Control](https://support.binho.io/getting-started/binho-mission-control/communication-protocols/i2c/) 交互体验 · WPF Fluent 深色主题 · 纯原生零依赖部署
+![Windows 10+](https://img.shields.io/badge/Windows-10%2B-0078D6?logo=windows11&logoColor=white)
+![.NET 8](https://img.shields.io/badge/.NET-8-512BD4?logo=dotnet&logoColor=white)
+![x64](https://img.shields.io/badge/Platform-x64-555555)
+![WPF](https://img.shields.io/badge/UI-WPF%20Fluent-6958D9)
 
-[![Windows](https://img.shields.io/badge/Windows-10%2B-0078D6?logo=windows11&logoColor=white)]()
-[![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white)]()
-[![UI](https://img.shields.io/badge/UI-WPF%20Fluent-9A86FD)]()
-[![Hardware](https://img.shields.io/badge/Hardware-Ginkgo%20VTG200A-FF6F00)]()
-[![License](https://img.shields.io/badge/License-MIT-3FB950)]()
+<p align="center">
+  <img src="docs/images/i2c-page.png" width="760" alt="GinkgoHost I²C 工作区" />
+</p>
 
-<img src="docs/images/i2c-page.png" width="720" alt="GinkgoHost 主界面"/>
+## 目录
 
-*三段式 I2C 命令面板 · 流式总线扫描 · 实时事务日志*
+- [快速开始](#快速开始)
+- [首次使用](#首次使用)
+- [能力一览](#能力一览)
+- [控制台](#控制台)
+- [验证与探针](#验证与探针)
+- [排障](#排障)
+- [项目结构](#项目结构)
 
-</div>
+## 快速开始
 
----
+### 前提条件
 
-## 🖼️ 界面预览
+- Windows 10 或更高版本，x64。
+- 安装 [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) 以构建项目；仅运行已构建程序时使用 .NET 8 Desktop Runtime。
+- Ginkgo USB–I²C 适配器及其 Windows 驱动。
 
-| 🔌 设备页 | 🎛️ I2C 命令面板 |
-|:-:|:-:|
-| ![设备页](docs/images/device-page.png) | ![I2C 页](docs/images/i2c-page.png) |
+项目随构建输出 x64 `Ginkgo_Driver.dll`。UI 使用 `WPF-UI`，由 NuGet 还原；它不是“零依赖”程序。运行程序时，`Ginkgo_Driver.dll` 必须与 `GinkgoHost.exe` 位于同一目录。
 
-## ✨ 功能亮点
-
-| | 功能 | 说明 |
-|:-:|---|---|
-| 🔌 | **连接管理** | 适配器扫描/打开/断开，底部状态栏实时显示通道、速率、最近事务 |
-| 🎛️ | **Control Mode** | Hardware I2C（通道 0–1）/ Software I2C（GPIO 0–7 模拟），切换立即生效 |
-| ⏱️ | **速率可调** | 100 kHz – 1.2 MHz 预设 + Non-Standard Frequencies 自定义，在线生效 |
-| 🔍 | **流式总线扫描** | 0x08–0x77 实时进度、命中地址即时出 chip；当前通道无命中自动扫另一通道 |
-| 🔢 | **7/8 位地址体系** | 地址文本与扫描 chip 随格式联动换算，chip 悬停显示两种等价形式 |
-| ✍️ | **寄存器/原始读写** | Write Buffer + WRITE、Read Size + READ，Subaddress 留空即原始读写 |
-| 📜 | **Transaction Log** | 方向徽章 RX/TX、OK/ERR 胶囊、失败行标红、双击复制、CSV 导出、5000 条环形缓冲 |
-| 💻 | **内置控制台** | `scan` / `read` / `write` / `speed` 命令行 + `↑↓` 历史 + 彩色输出 |
-| ⏱️ | **周期读写** | 10 ms–60 s 定时轮询/写入；高频档仅在数值变化或失败时进日志；连续 5 次失败自动停止 |
-| 💾 | **设置持久化** | 通道、模式、速率、地址全部记忆，重启即恢复 |
-| 🌓 | **亮/暗主题** | Fluent 主题一键切换 |
-| 🧩 | **扩展页** | 寄存器表一键读取全部、初始化序列（延时+按序写入）、周期触发、Profile 按器件保存/载入，支持 8/16 位寄存器地址 |
-
-## 🚀 快速开始
-
-```bash
+```powershell
 git clone https://github.com/Hush-xv/GinkgoHost.git
-cd GinkgoHost/GinkgoHost
-dotnet build -c Debug
-bin\Debug\net8.0-windows\GinkgoHost.exe
+cd GinkgoHost
+dotnet build .\GinkgoHost\GinkgoHost.csproj -c Debug
+.\GinkgoHost\bin\Debug\net8.0-windows\GinkgoHost.exe
 ```
 
-> [!TIP]
-> 仓库已内置 x64 `Ginkgo_Driver.dll` v2.0.3.6，构建自动拷贝到输出目录，开箱即用。
-> 只需本机装有 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)（x64）。
+`dotnet` 未加入环境变量时，使用本机 SDK 的完整路径执行相同命令，例如：
 
-## 🎛️ 使用指南
-
-1. **连接**：Settings 里选 Control Mode / Clock Frequency / Channel → 点 **连接适配器**
-2. **扫描**：点 Address 输入框或 **SCAN** 按钮 → 命中的地址以 chip 形式弹出，点击选用
-3. **读写**：填 Subaddress（寄存器号，留空 = 原始读写）→ WRITE / READ，结果实时进日志
-4. **控制台**：切到控制台页直接敲命令，脚本化调试更快
-5. **周期任务**：周期读按当前 READ 参数、周期写按当前 WRITE 参数定时执行
-   - 间隔 10 ms–60 s；高频档（<500 ms）仅在数值变化或失败时写日志，面板实时显示最新值
-   - 周期写启动前需确认（重复写入对 EEPROM 类器件有磨损）；连续 5 次失败自动停止
-
-<div align="center">
-
-### 💻 控制台命令
-
-| 命令 | 说明 | 示例 |
-|---|---|---|
-| `connect` / `disconnect` | 连接/断开适配器 | |
-| `speed <kHz>` | 修改速率 | `speed 400` |
-| `scan` | 扫描从机 0x08–0x77 | |
-| `read <addr7> [reg] <len>` | 寄存器/原始读 | `read 49 00 8` |
-| `write <addr7> [reg] <b...>` | 写，最多 16 字节 | `write 49 00 de ad` |
-| `readloop <addr7> [reg] <len> <ms>` | 周期读，`stop` 停止 | `readloop 49 00 8 200` |
-| `status` / `config` | 查看状态/配置 | |
-
-</div>
-
-## 🔬 硬件探针（无 GUI 验证）
-
-`tests/SmokeTest` 内置探针模式，一条命令验证整条总线链路：
-
-```bash
-dotnet run --project tests/SmokeTest -c Debug -- --probe 49 00 1 77 1
-#                                                     │  │  │ └┬─ 期望值 └┬─ 通道
-#                                                     │  │  └── 长度   从机 7 位地址
-#                                                     │  └─ 寄存器
+```powershell
+& 'C:\Program Files\dotnet\dotnet.exe' build .\GinkgoHost\GinkgoHost.csproj -c Debug
 ```
 
-无参数运行则为无硬件冒烟自检（DLL 加载、入口点、命令解析器）。
+发布构建：
 
-> [!IMPORTANT]
-> **地址约定**：界面与日志统一使用 **7 位地址**（行业惯例）。
-> 数据手册按 8 位标注的地址（如 `0x92`）= 7 位 `0x49`，在 Address Format 切到 8-bit 后可直接填 `92`。
-> 驱动层 `Addr` 参数为 8 位格式（7 位 `<< 1`），与官方 AT24C02 例程传 `0xA0` 一致。
-
-## 🏗️ 架构
-
-```mermaid
-flowchart LR
-    subgraph UI["UI 线程 · 零 DLL 调用"]
-        V["Views<br/>设备 / I2C / 控制台 / 设置"]
-        L["Transaction Log<br/>环形缓冲 5000 条"]
-    end
-    V -- "async" --> S["I2cService<br/>SemaphoreSlim 串行化"]
-    S --> W["后台线程 Task.Run"]
-    W --> P["GinkgoDriver<br/>P/Invoke 封装"]
-    P --> D[("Ginkgo_Driver.dll<br/>v2.0.3.6 x64")]
-    D --> H["VTG200A<br/>USB-I2C 总线"]
-    S -. "StateChanged / LogEntry" .-> L
+```powershell
+dotnet build .\GinkgoHost\GinkgoHost.csproj -c Release
 ```
 
-## 🧭 排障
+输出目录为 `GinkgoHost\bin\Release\net8.0-windows\`。
 
-| 现象 | 处置 |
+## 首次使用
+
+1. 接好适配器、目标板和共地；确认目标板供电与上拉电阻符合器件要求。
+2. 打开 **设置**，选择 I²C 模式、通道、速率和地址显示格式。
+3. 在 **设备** 页连接适配器。连接成功后会显示通道、速率、序列号和固件版本。
+4. 在 **I²C** 页填写目标地址，先执行 **SCAN** 或一次小长度 **READ**。
+5. 确认日志中的地址、结果和数据正确后，再执行会改变器件状态的写操作。
+
+> [!WARNING]
+> `WRITE`、初始化序列和周期写会改变目标器件状态。对 EEPROM、Flash、配置寄存器和执行机构，请先核对地址、子地址、数据和电源状态。不要把扫描、读取成功当作写入安全的证明。
+
+### 地址规则
+
+界面可显示 7-bit 或 8-bit 地址；驱动调用始终转换为 7-bit 地址。
+
+| 数据手册写法 | 7-bit 显示 | 8-bit 显示 |
+|---|---:|---:|
+| `0x92`（写地址） | `0x49` | `0x92` |
+
+8-bit 地址必须是偶数写地址。若数据手册仅给出读地址，请先换算到对应写地址再输入。
+
+## 能力一览
+
+| 区域 | 能力 |
 |---|---|
-| 读写全部返回 `EXECUTE_CMD_FAILD (-10)` | 驱动会话卡死——**拔插适配器**复位；并确认从机通道与 Channel 一致 |
-| 扫描无命中 | 应用会自动扫另一通道并提示；仍无则查上拉电阻、共地、地址格式（8 位标注需换算） |
-| 双击 exe 闪退 | 事件查看器 → Application → `.NET Runtime` 查看堆栈 |
-| DLL 加载失败 | 进程位宽须与 `libs/` 下 DLL 一致（当前 x64） |
+| 设备 | 扫描、连接、断开；显示适配器序列号、固件和驱动信息；离线刷新不会保留旧设备身份。 |
+| I²C 工作区 | Hardware I²C（通道 0–1）与 Software I²C（GPIO 0–7）；100 kHz、400 kHz、1 MHz、1.2 MHz 和自定义硬件速率。 |
+| 地址与读写 | 7/8-bit 地址显示；寄存器读写与原始读写；输入阶段校验地址、长度和子地址。 |
+| 总线扫描 | 扫描 `0x08`–`0x77`，实时进度条与命中地址即时入列；未命中时可检查另一硬件通道；扫描中可随时中止。 |
+| 事务日志 | RX / TX / SYS 分类、失败提示、筛选与排序、复制单条记录、CSV 导出、5,000 条环形缓冲。 |
+| 控制台 | 快捷命令、历史导航、彩色输出、周期读和停止控制；输出保留最近 1,000 行，命令历史保留最近 200 条。 |
+| 扩展工作区 | 寄存器表批量读取、初始化序列、Profile 保存与载入，以及 8/16-bit 子地址支持。 |
+| 使用体验 | 亮/暗主题、响应式布局、自动连接选项、应用重启后恢复常用 I²C 设置。 |
 
-## ⚠️ 已知限制
+<p align="center">
+  <img src="docs/images/device-page.png" width="760" alt="GinkgoHost 设备页面" />
+</p>
 
-- 从机（Slave）模式规划中（驱动 API 已确认：`VII_SlaveReadBytes/WriteBytes` 查询式）
-- Internal Pull-Up / Bus Voltage 为 VTG200A 板载跳线控制，无软件接口
-- 软件 I2C 速率由 GPIO 时序决定（约 100 kHz 级），不随 Clock Frequency 变化
+## 控制台
 
-## 🙏 致谢
+控制台适合重复执行小型调试动作。地址按当前地址格式输入；示例使用 7-bit 地址 `49`。
 
-- [ViewTool](http://www.viewtool.com/) — Ginkgo 硬件、驱动与 SDK 例程
-- [Binho Mission Control](https://binho.io/) — 交互与视觉参考
-- [WPF-UI](https://github.com/lepoco/wpfui) — Fluent 控件库
+| 命令 | 作用 | 示例 |
+|---|---|---|
+| `help` | 显示命令列表 | `help` |
+| `connect` / `disconnect` | 连接或断开适配器 | `connect` |
+| `adapters` | 刷新并显示适配器数量 | `adapters` |
+| `status` / `config` | 显示会话状态或当前配置 | `status` |
+| `speed <kHz>` | 切换硬件 I²C 速率 | `speed 400` |
+| `scan` | 扫描从机地址 | `scan` |
+| `read <addr> [reg] <len>` | 执行寄存器或原始读取 | `read 49 00 8` |
+| `write <addr> [reg] <b...>` | 写入数据 | `write 49 00 de ad` |
+| `readloop <addr> [reg] <len> <ms>` | 启动周期读 | `readloop 49 00 8 500` |
+| `stop` | 停止周期读 | `stop` |
+| `clear` | 清空控制台输出 | `clear` |
 
----
+`↑`、`↓` 可浏览命令历史；周期读运行时按 `Esc` 或输入 `stop` 停止。
 
-<div align="center">
+## 验证与探针
 
-**GinkgoHost** · Made with ⚡ by [Hush-xv](https://github.com/Hush-xv)
+测试工程位于 `GinkgoHost\tests\SmokeTest`。从仓库根目录运行：
 
-⭐ 觉得好用就点个 Star
+```powershell
+# 纯数据展示与日志容量检查，不访问硬件
+dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug -- --log-display
 
-</div>
+# 基础冒烟检查。连接 Ginkgo 后会额外打开、初始化并只读扫描总线。
+dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug
+
+# 只读读取适配器身份信息
+dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug -- --boardinfo
+
+# 对已知从机执行一次读取：地址、寄存器、长度、期望首字节、通道
+dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug -- --probe 49 00 1 77 0
+```
+
+`--probe` 会访问目标从机，但不会写入。使用前请将示例参数替换为实际硬件参数。
+
+## 排障
+
+| 现象 | 检查顺序 |
+|---|---|
+| 未检测到适配器 | 检查 USB 连接、Windows 驱动、设备管理器；在控制台执行 `adapters` 后重新连接。 |
+| `EXECUTE_CMD_FAILD (-10)` | 断开并重新连接；仍失败时拔插适配器。再检查目标板供电、共地、通道和模式。 |
+| 扫描无命中 | 检查上拉电阻、SCL/SDA 接线、目标地址和地址格式；Hardware I²C 时确认通道 0 或 1。 |
+| 地址正确但读取异常 | 缩低速率；确认寄存器地址宽度、重复起始条件和器件时序要求。 |
+| 程序无法启动或 DLL 加载失败 | 确认使用 x64 系统与 x64 构建输出；不要单独移动 `GinkgoHost.exe`，需同时保留同目录的原生 DLL。 |
+| 周期读自动停止 | 查看事务日志中的连续失败项；恢复总线后重新启动周期读。 |
+
+日志文件与设置文件的路径可在 **设置** 页复制。发生未处理异常时，优先保留最新日志、目标接线信息和复现步骤。
+
+## 项目结构
+
+```text
+GinkgoHost/
+├─ GinkgoHost/                 WPF 应用
+│  ├─ Views/                   设备、I²C、控制台与设置页面
+│  ├─ Services/                I²C 会话、命令解析与设置持久化
+│  ├─ Native/                  Ginkgo DLL P/Invoke 封装
+│  ├─ Models/                  事务日志与数据模型
+│  ├─ libs/x64/                随程序分发的原生 DLL
+│  └─ tests/SmokeTest/         无 GUI 验证与硬件探针
+└─ docs/images/                README 截图
+```
+
+## 已知边界
+
+- 当前应用面向 USB–I²C 主机调试；从机模式不在此版本范围内。
+- 板载上拉与总线电压由硬件跳线决定，应用不控制这些电气配置。
+- Software I²C 的速率由 GPIO 时序决定，不随 Hardware I²C 的速率设置变化。
+
+## 致谢
+
+- [ViewTool](http://www.viewtool.com/)：Ginkgo 硬件、驱动与 SDK 例程。
+- [Binho Mission Control](https://binho.io/)：交互参考。
+- [WPF-UI](https://github.com/lepoco/wpfui)：Fluent 控件库。

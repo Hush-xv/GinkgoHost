@@ -5,6 +5,7 @@ using System.Collections.ObjectModel;
 using GinkgoHost.Models;
 using GinkgoHost.Native;
 using GinkgoHost.Services;
+using GinkgoHost.Views;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
@@ -29,7 +30,16 @@ if (args.Length > 0 && args[0] == "--log-display")
         log.AddCapped(new LogEntry(start.AddMilliseconds(i), "RX", "READ", "0x92", 0, 0.1, [(byte)i]));
     bool capPass = log.Count == LogCollectionExtensions.Cap && log[0].Ts == start.AddMilliseconds(100);
     Console.WriteLine($"{(capPass ? "PASS" : "FAIL")}  日志上限 {log.Count}/{LogCollectionExtensions.Cap}，最旧记录正确淘汰");
-    return displayFailures == 0 && capPass ? 0 : 1;
+
+    // SYS 数据含控制字节（如旧扫描路径塞的原始地址 0x08）回退 hex；可读文本原样展示
+    var rawScan = new LogEntry(DateTime.UnixEpoch, "SYS", "总线扫描", "—", 0, 0, [0x08]);
+    bool rawPass = rawScan.DataDisplay == "08";
+    Console.WriteLine($"{(rawPass ? "PASS" : "FAIL")}  SYS 控制字节数据回退 hex（实际 {rawScan.DataDisplay}）");
+    var textEntry = new LogEntry(DateTime.UnixEpoch, "SYS", "连接适配器", "—", 0, 0,
+        System.Text.Encoding.UTF8.GetBytes("Ginkgo · CH1 · 400 kHz"));
+    bool textPass = textEntry.DataDisplay == "Ginkgo · CH1 · 400 kHz";
+    Console.WriteLine($"{(textPass ? "PASS" : "FAIL")}  SYS 可读文本原样展示");
+    return displayFailures == 0 && capPass && rawPass && textPass ? 0 : 1;
 }
 
 // ── Aardvark 探针：--aardvark [bitrateKHz] ──
@@ -278,6 +288,16 @@ if (File.Exists(dllPath))
 // 3. 库可加载
 Check("NativeLibrary 加载", NativeLibrary.TryLoad(dllPath, out nint h));
 if (h != 0) NativeLibrary.Free(h);
+Check("设备标识过滤控制字符",
+    GinkgoDriver.Ascii([(byte)'S', (byte)'U', (byte)'1', (byte)'4', (byte)'8', (byte)'6', 0x07, 0]) == "SU1486");
+Check("ASCII 预览保留可读字节",
+    I2cPage.AsciiPreview([(byte)'A', 0x00, (byte)'~']) == "A·~");
+Check("ASCII 预览截断长数据",
+    I2cPage.AsciiPreview(Enumerable.Repeat((byte)'A', 97).ToArray()) is { Length: 97 } preview && preview.EndsWith('…'));
+Check("读取变化摘要定位偏移",
+    I2cPage.DescribeReadDelta([0x00, 0x01, 0x02, 0x03], [0x00, 0x11, 0x02, 0x13]) == "变化 2 B · 0x01、0x03");
+Check("读取变化摘要识别相同数据",
+    I2cPage.DescribeReadDelta([0x00, 0x01], [0x00, 0x01]) == "与上次读取相同");
 
 // 4. 入口点可调用：无适配器时返回 0（个数），插了返回 ≥1
 int count = GinkgoDriver.VII_ScanDevice(1);
@@ -313,6 +333,24 @@ if (count > 0 && ret == 0)
     }
     Console.WriteLine($"INFO  总线扫描命中 {(hits.Count == 0 ? "0 个（总线空闲）" : string.Join(" ", hits.Select(x => $"0x{x:X2}")))}");
     _ = GinkgoDriver.VII_CloseDevice(GinkgoDriver.VII_USBI2C, 0);
+
+    // 服务层连接必须在同一串行链路内生成身份快照，页面不应再直接调用驱动读取 BoardInfo。
+    using var serviceSmoke = new I2cService();
+    var (serviceCount, serviceRet) = await serviceSmoke.ConnectAsync(0, 100_000, GinkgoDriver.VII_HCTL_MODE);
+    Check("I2cService 在线连接", serviceCount > 0 && serviceRet == 0,
+        $"count={serviceCount}, ret={serviceRet} ({GinkgoDriver.ErrorName(serviceRet)})");
+    Check("I2cService 设备身份快照", serviceSmoke.AdapterInfo is not null,
+        serviceSmoke.AdapterInfo is { } identity
+            ? $"sn={identity.SerialNumber}, fw={identity.FirmwareVersion}"
+            : "未取得身份信息");
+    int serviceCloseRet = await serviceSmoke.CloseAsync();
+    Check("I2cService 在线关闭", serviceCloseRet == 0,
+        $"ret={serviceCloseRet} ({GinkgoDriver.ErrorName(serviceCloseRet)})");
+    int refreshedCount = await serviceSmoke.ScanAdaptersAsync();
+    Check("I2cService 仅刷新适配器资源", refreshedCount == count,
+        $"count={refreshedCount}");
+    Check("I2cService 刷新清除旧身份快照", serviceSmoke.AdapterInfo is null,
+        serviceSmoke.AdapterInfo is null ? "已清除" : "仍保留旧身份");
 }
 
 static int InitI2C100k()
@@ -342,6 +380,32 @@ Check("解析 speed 400",
     CommandParser.Parse("speed 400").Cmd is SpeedCmd s1 && s1.KHz == 400);
 Check("未知命令报错", CommandParser.Parse("bogus").Error != null);
 Check("超长读拒绝", CommandParser.Parse("read 50 999").Error != null);
+Check("Profile 名称边界",
+    ProfileService.IsValidName("sensor-v2") && !ProfileService.IsValidName("..") &&
+    !ProfileService.IsValidName("sensor/profile"));
+
+// 8. 服务边界自检：必须在触及驱动或分配读取缓冲区前拒绝非法参数。
+using (var validationSvc = new I2cService())
+{
+    Check("服务拒绝 8-bit 从机地址",
+        await ThrowsAsync<ArgumentOutOfRangeException>(() => validationSvc.RawReadAsync(0x80, 1)));
+    Check("服务拒绝零长度读取",
+        await ThrowsAsync<ArgumentOutOfRangeException>(() => validationSvc.RawReadAsync(0x50, 0)));
+    Check("服务拒绝非法子地址宽度",
+        await ThrowsAsync<ArgumentOutOfRangeException>(() => validationSvc.ReadSubAddrAsync(0x50, 0, 1, 0)));
+    Check("服务拒绝硬件模式的越界通道",
+        await ThrowsAsync<ArgumentOutOfRangeException>(() => validationSvc.ApplyConfigAsync(2, 100_000, GinkgoDriver.VII_HCTL_MODE)));
+}
 
 Console.WriteLine(failures == 0 ? "\n全部通过" : $"\n{failures} 项失败");
 return failures == 0 ? 0 : 1;
+
+static async Task<bool> ThrowsAsync<TException>(Func<Task> action) where TException : Exception
+{
+    try
+    {
+        await action();
+        return false;
+    }
+    catch (TException) { return true; }
+}

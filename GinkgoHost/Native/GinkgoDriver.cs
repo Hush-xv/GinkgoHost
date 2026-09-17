@@ -110,7 +110,9 @@ public static class GinkgoDriver
     {
         int end = Array.IndexOf(bytes, (byte)0);
         if (end < 0) end = bytes.Length;
-        return System.Text.Encoding.ASCII.GetString(bytes, 0, end).Trim();
+        string text = System.Text.Encoding.ASCII.GetString(bytes, 0, end);
+        // 部分固件会在定长序列号尾部留控制字节；UI 身份字段只显示可打印 ASCII。
+        return string.Concat(text.Where(c => c is >= ' ' and <= '~')).Trim();
     }
 
     public static string Hex(byte[] bytes) => Convert.ToHexString(bytes);
@@ -138,12 +140,15 @@ public static class GinkgoDriver
 
 /// <summary>
 /// 运行时文件日志：%APPDATA%\GinkgoHost\logs\GinkgoHost_yyyyMMdd.log。
-/// 按天滚动，保留 7 天；每行即写即刷，崩溃不丢末尾；IO 异常一律吞掉，日志永不影响主流程。
+/// 按天滚动，保留 7 天；写入端保持打开（AutoFlush 每行即刷，崩溃不丢末尾），
+/// 避免高频轮询路径上每行日志都付出打开/关闭文件句柄的系统调用；IO 异常一律吞掉，日志永不影响主流程。
 /// </summary>
 public static class Dbg
 {
     static readonly object _lock = new();
     static string _cleanedDate = "";
+    static StreamWriter? _writer;
+    static string _writerDate = "";
 
     public static string LogDir { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -157,32 +162,44 @@ public static class Dbg
             string date = now.ToString("yyyyMMdd");
             lock (_lock)
             {
-                Directory.CreateDirectory(LogDir);
-                if (_cleanedDate != date)
-                {
-                    _cleanedDate = date;
-                    foreach (string f in Directory.GetFiles(LogDir, "GinkgoHost_*.log"))
-                        if (File.GetLastWriteTime(f) < now.AddDays(-7))
-                            File.Delete(f);
-                }
-                File.AppendAllText(Path.Combine(LogDir, $"GinkgoHost_{date}.log"),
-                    $"[{now:HH:mm:ss.fff}] {msg}\r\n");
+                EnsureWriter(date, now);
+                _writer!.WriteLine($"[{now:HH:mm:ss.fff}] {msg}");
             }
         }
         catch { /* 日志失败不影响主流程 */ }
+    }
+
+    /// <summary>按需创建/滚动当日写入端；跨天时先清理过期日志再换文件。</summary>
+    static void EnsureWriter(string date, DateTime now)
+    {
+        if (_writer is not null && _writerDate == date) return;
+        Directory.CreateDirectory(LogDir);
+        if (_cleanedDate != date)
+        {
+            _cleanedDate = date;
+            foreach (string f in Directory.GetFiles(LogDir, "GinkgoHost_*.log"))
+                if (File.GetLastWriteTime(f) < now.AddDays(-7))
+                    File.Delete(f);
+        }
+        _writer?.Dispose();
+        _writer = new StreamWriter(Path.Combine(LogDir, $"GinkgoHost_{date}.log"), append: true)
+        {
+            AutoFlush = true
+        };
+        _writerDate = date;
     }
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     static extern IntPtr ShellExecuteW(IntPtr hwnd, string verb, string file, string args, string dir, int showCmd);
 
     /// <summary>在资源管理器中打开日志目录（ShellExecute 交给系统解析，无命令行拼接）。</summary>
-    public static void OpenLogFolder()
+    public static bool OpenLogFolder()
     {
         try
         {
             Directory.CreateDirectory(LogDir);
-            ShellExecuteW(IntPtr.Zero, "open", LogDir, "", "", 1 /* SW_SHOWNORMAL */);
+            return ShellExecuteW(IntPtr.Zero, "open", LogDir, "", "", 1 /* SW_SHOWNORMAL */).ToInt64() > 32;
         }
-        catch { /* 打开失败不影响主流程 */ }
+        catch { return false; /* 打开失败不影响主流程 */ }
     }
 }

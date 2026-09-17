@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using GinkgoHost.Models;
 using GinkgoHost.Native;
@@ -18,8 +19,13 @@ public partial class MainWindow : FluentWindow
 
     private static readonly Brush DotOn = new SolidColorBrush(Color.FromRgb(0x4c, 0xaf, 0x50));
     private static readonly Brush DotOff = new SolidColorBrush(Color.FromRgb(0x75, 0x75, 0x75));
+    private static readonly Brush DotBusy = new SolidColorBrush(Color.FromRgb(0xff, 0xa7, 0x26));
+    // 204px 导航栏展开后，页面仍保留约 950px 的可用宽度。
+    private const double NavAutoCollapseWidth = 1180;
     private bool _windowReady;
     private bool _navOpen = true;
+    private bool _navAutoCollapsed;
+    private bool _navManualOverrideAtNarrowWidth;
     private bool _connectionBusy;
     private bool _closing;
 
@@ -29,8 +35,17 @@ public partial class MainWindow : FluentWindow
         // 位置必须在 HWND 创建后（SourceInitialized）设置：构造期设 Left/Top+Maximized
         // 会被 Win32 初始位置覆盖，最大化会落到默认屏幕而不是目标屏
         SourceInitialized += (_, _) => RestoreWindowPlacement();
+        _devicePage.ConnectRequested += DevicePage_ConnectRequested;
+        _devicePage.WorkspaceRequested += DevicePage_WorkspaceRequested;
         _navOpen = App.Settings.NavOpen;
         ApplyNavState();
+        Loaded += async (_, _) =>
+        {
+            UpdateNavForWindowWidth(ActualWidth);
+            // 启动即连：工作台工具的常用姿势；无设备时静默失败（只留日志，不打扰）
+            if (App.Settings.AutoConnect && !App.Bus.IsOpen)
+                await ConnectAsync("auto-start");
+        };
         Nav.SelectedIndex = Math.Clamp(App.Settings.LastPage, 0, 3);
         _windowReady = true;
         App.Bus.StateChanged += RefreshStatus;
@@ -41,6 +56,8 @@ public partial class MainWindow : FluentWindow
         Closed += (_, _) =>
         {
             App.Bus.StateChanged -= RefreshStatus;
+            _devicePage.ConnectRequested -= DevicePage_ConnectRequested;
+            _devicePage.WorkspaceRequested -= DevicePage_WorkspaceRequested;
         };
     }
 
@@ -130,13 +147,19 @@ public partial class MainWindow : FluentWindow
         if (_closing) return;
         _closing = true;
         SaveWindowPlacement();
-        if (!App.Bus.IsOpen) return;
+        // 连接扫描尚未完成时 IsOpen 仍为 false；同样等待服务锁释放，避免退出时 DLL 调用悬空。
+        bool operationPending = _connectionBusy;
+        if (!App.Bus.IsOpen && !operationPending) return;
 
         e.Cancel = true;
         SetConnectionBusy(true);
-        Dbg.Log("MainWindow.Closing: waiting for I2C session close");
+        TxtWorkspaceState.Text = "正在关闭";
+        TxtHeaderState.Text = "正在关闭…";
+        TxtWorkspaceDetail.Text = "正在结束 I²C 会话…";
+        Dbg.Log($"MainWindow.Closing: waiting for I2C session close; connected={App.Bus.IsOpen} busy={operationPending}");
         try
         {
+            _i2cPage.CancelScan(); // 先中止进行中的扫描，CloseAsync 才不会在服务锁上等完整轮扫描
             int ret = await App.Bus.CloseAsync();
             Dbg.Log($"MainWindow.Closing: CloseAsync ret={ret}");
         }
@@ -162,17 +185,86 @@ public partial class MainWindow : FluentWindow
 
     private void BtnNavToggle_Click(object sender, RoutedEventArgs e)
     {
+        // 窄窗口自动收起后，菜单按钮可临时展开导航，但不改写用户的持久化偏好。
+        if (_navAutoCollapsed)
+        {
+            _navAutoCollapsed = false;
+            _navManualOverrideAtNarrowWidth = true;
+            ApplyNavState();
+#if DEBUG
+            Dbg.Log("MainWindow.BtnNavToggle_Click: manual override opened navigation at narrow width");
+#endif
+            return;
+        }
+
         _navOpen = !_navOpen;
+        _navManualOverrideAtNarrowWidth = _navOpen && ActualWidth < NavAutoCollapseWidth;
         ApplyNavState();
         App.Settings.NavOpen = _navOpen;
         App.Settings.Save();
         Dbg.Log($"MainWindow.BtnNavToggle_Click: navOpen={_navOpen}");
     }
 
+    private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
+        => UpdateNavForWindowWidth(e.NewSize.Width);
+
+    /// <summary>页面级快捷键只在窗口预览阶段处理，避免各页重复注册且不影响文本输入的常用 Ctrl+字母组合。</summary>
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (Keyboard.Modifiers != ModifierKeys.Control) return;
+        int page = e.Key switch
+        {
+            Key.D1 or Key.NumPad1 => 0,
+            Key.D2 or Key.NumPad2 => 1,
+            Key.D3 or Key.NumPad3 => 2,
+            Key.D4 or Key.NumPad4 => 3,
+            _ => -1
+        };
+        if (page < 0) return;
+
+        Nav.SelectedIndex = page;
+        ShowPage();
+        FocusKeyboardSelectedPage(page);
+        e.Handled = true;
+#if DEBUG
+        Dbg.Log($"MainWindow.MainWindow_PreviewKeyDown: switched page={page} via Ctrl+{page + 1}");
+#endif
+    }
+
+    private void FocusKeyboardSelectedPage(int page)
+    {
+        switch (page)
+        {
+            case 0: _devicePage.FocusPrimaryAction(); break;
+            case 1: _i2cPage.FocusTransactionTarget(); break;
+            case 2: _consolePage.FocusCommandInput(); break;
+            case 3: _settingsPage.FocusThemeSelector(); break;
+        }
+    }
+
+    private void UpdateNavForWindowWidth(double width)
+    {
+        if (width <= 0) return;
+
+        bool narrow = width < NavAutoCollapseWidth;
+        if (!narrow)
+            _navManualOverrideAtNarrowWidth = false;
+
+        bool autoCollapsed = narrow && _navOpen && !_navManualOverrideAtNarrowWidth;
+        if (_navAutoCollapsed == autoCollapsed) return;
+
+        _navAutoCollapsed = autoCollapsed;
+        ApplyNavState();
+#if DEBUG
+        Dbg.Log($"MainWindow.UpdateNavForWindowWidth: width={width:F0} autoCollapsed={_navAutoCollapsed} userNavOpen={_navOpen}");
+#endif
+    }
+
     private void ApplyNavState()
     {
-        NavCol.Width = _navOpen ? new GridLength(204) : new GridLength(0);
-        Nav.Visibility = _navOpen ? Visibility.Visible : Visibility.Collapsed;
+        bool visible = _navOpen && !_navAutoCollapsed;
+        NavCol.Width = visible ? new GridLength(204) : new GridLength(0);
+        Nav.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ShowPage()
@@ -190,43 +282,83 @@ public partial class MainWindow : FluentWindow
 
     private void RefreshStatus()
     {
-        Dispatcher.Invoke(() =>
+        if (!Dispatcher.CheckAccess())
         {
-            DotWorkspaceState.Fill = App.Bus.IsOpen ? DotOn : DotOff;
-            string busTxt = App.Bus.ControlMode == GinkgoDriver.VII_SCTL_MODE
-                ? "软件 I2C"
-                : $"{App.Bus.ClockHz / 1000} kHz";
-            TxtWorkspaceState.Text = App.Bus.IsOpen ? "已连接" : "未连接";
-            // 紧凑设备标识：短名 · 通道 · 速率。多 Adapter 时短名来自 Adapter 能力描述，避免长名裁切
-            TxtWorkspaceDetail.Text = App.Bus.IsOpen
-                ? $"Ginkgo · CH{App.Bus.Channel} · {busTxt}"
-                : App.Bus.AdapterCount > 0 ? $"检测到 {App.Bus.AdapterCount} 个适配器" : "未检测到适配器";
-            if (!_connectionBusy)
-            {
-                BtnWorkspaceConnect.Content = "连接";
-                BtnWorkspaceConnect.IsEnabled = !App.Bus.IsOpen;
-                BtnWorkspaceDisconnect.IsEnabled = App.Bus.IsOpen;
-            }
-        });
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            Dispatcher.BeginInvoke(RefreshStatus);
+            return;
+        }
+        if (_closing) return;
+
+        DotWorkspaceState.Fill = App.Bus.IsOpen ? DotOn : DotOff;
+        DotHeaderState.Fill = App.Bus.IsOpen ? DotOn : DotOff;
+        string busTxt = App.Bus.ControlMode == GinkgoDriver.VII_SCTL_MODE
+            ? "软件 I2C"
+            : $"{App.Bus.ClockHz / 1000} kHz";
+        TxtWorkspaceState.Text = App.Bus.IsOpen ? "已连接" : "未连接";
+        TxtHeaderState.Text = App.Bus.IsOpen ? $"已连接 · {busTxt}" : "未连接";
+        // 紧凑设备标识：短名 · 通道 · 速率。多 Adapter 时短名来自 Adapter 能力描述，避免长名裁切
+        TxtWorkspaceDetail.Text = App.Bus.IsOpen
+            ? $"Ginkgo · CH{App.Bus.Channel} · {busTxt}"
+            : App.Bus.AdapterCount > 0 ? $"检测到 {App.Bus.AdapterCount} 个适配器" : "未检测到适配器";
+        if (!_connectionBusy)
+        {
+            BtnWorkspaceConnect.Content = "连接";
+            BtnWorkspaceConnect.IsEnabled = !App.Bus.IsOpen;
+            BtnWorkspaceDisconnect.IsEnabled = App.Bus.IsOpen;
+        }
     }
 
     private void SetConnectionBusy(bool busy)
     {
         _connectionBusy = busy;
+        _devicePage.SetConnectionBusy(busy);
         BtnWorkspaceConnect.Content = busy ? "连接中…" : "连接";
         BtnWorkspaceConnect.IsEnabled = !busy && !App.Bus.IsOpen;
         BtnWorkspaceDisconnect.IsEnabled = !busy && App.Bus.IsOpen;
+        if (busy)
+        {
+            DotWorkspaceState.Fill = DotBusy;
+            DotHeaderState.Fill = DotBusy;
+            TxtWorkspaceState.Text = "连接中";
+            TxtHeaderState.Text = "连接中…";
+            TxtWorkspaceDetail.Text = "正在扫描适配器并初始化 I²C…";
+        }
+        else
+        {
+            RefreshStatus();
+        }
+#if DEBUG
+        Dbg.Log($"MainWindow.SetConnectionBusy: busy={busy}");
+#endif
     }
 
-    private async void BtnWorkspaceConnect_Click(object sender, RoutedEventArgs e)
+    private async void DevicePage_ConnectRequested(object? sender, EventArgs e) => await ConnectAsync("device-page");
+
+    private void DevicePage_WorkspaceRequested(object? sender, EventArgs e)
     {
-        Dbg.Log($"MainWindow.BtnWorkspaceConnect_Click: ch={App.Settings.Channel} clk={App.Settings.ClockHz} mode={App.Settings.ControlMode}");
+        Nav.SelectedIndex = 1;
+        ShowPage();
+        _i2cPage.FocusTransactionTarget();
+#if DEBUG
+        Dbg.Log("MainWindow.DevicePage_WorkspaceRequested: opened I2C workspace");
+#endif
+    }
+
+    private async void BtnWorkspaceConnect_Click(object sender, RoutedEventArgs e) => await ConnectAsync("workspace");
+
+    /// <summary>所有入口复用同一条连接链路，状态卡、设备页和系统日志不会出现不同步的第二套状态。</summary>
+    private async Task ConnectAsync(string source)
+    {
+        if (_connectionBusy || App.Bus.IsOpen) return;
+        Dbg.Log($"MainWindow.ConnectAsync: source={source} ch={App.Settings.Channel} clk={App.Settings.ClockHz} mode={App.Settings.ControlMode}");
         try
         {
             SetConnectionBusy(true);
             var (count, ret) = await App.Bus.ConnectAsync(
                 App.Settings.Channel, App.Settings.ClockHz, (byte)App.Settings.ControlMode);
-            Dbg.Log($"MainWindow.BtnWorkspaceConnect_Click: count={count} ret={ret}");
+            Dbg.Log($"MainWindow.ConnectAsync: source={source} count={count} ret={ret}");
+            _devicePage.SetConnectionOutcome(count, ret);
             int logRet = count <= 0 ? (count == 0 ? -15 : count) : ret;
             // SYS 事件不占用事务字段：地址列恒 —，设备/通道/速率详情放数据列（DataDisplay 按 UTF-8 显示），
             // 连接时记录一次硬件上下文，导出日志脱离状态卡也能知道事务属于哪个 Adapter
@@ -237,7 +369,8 @@ public partial class MainWindow : FluentWindow
         }
         catch (Exception ex)
         {
-            Dbg.Log($"MainWindow.BtnWorkspaceConnect_Click: failed={ex.Message}");
+            Dbg.Log($"MainWindow.ConnectAsync: source={source} failed={ex.Message}");
+            _devicePage.SetConnectionOutcome(-1, -1, ex.Message);
             App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
             RefreshStatus();

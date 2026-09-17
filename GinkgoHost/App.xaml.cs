@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Threading;
 using System.Windows;
+using System.Windows.Media;
 using GinkgoHost.Models;
 using GinkgoHost.Native;
 using GinkgoHost.Services;
@@ -29,10 +30,35 @@ public partial class App : Application
             return;
         }
         Settings = SettingsService.Load();
-        ApplicationThemeManager.Apply(
-            Settings.Theme == "Light" ? ApplicationTheme.Light : ApplicationTheme.Dark);
+        bool light = Settings.Theme == "Light";
+        ApplicationThemeManager.Apply(light ? ApplicationTheme.Light : ApplicationTheme.Dark);
+        ApplyThemePalette(light);
         base.OnStartup(e);
         Dbg.Log($"App start v{typeof(App).Assembly.GetName().Version} · {Environment.OSVersion} · log {Dbg.LogDir}");
+    }
+
+    /// <summary>
+    /// 主题化状态/语义色：暗色用浅色文本、亮色用深色文本。
+    /// 替换 Application.Resources 中的画刷实例后，所有 DynamicResource 引用即时刷新，
+    /// 日志、控制台、设备页的状态着色随主题联动，不再有白底浅字的不可读组合。
+    /// </summary>
+    public static void ApplyThemePalette(bool light)
+    {
+        var res = Current.Resources;
+        res["StatusSuccessBrush"] = Brush(light ? (0x0E, 0x8A, 0x3E) : (0x91, 0xD5, 0xA0));
+        res["StatusErrorBrush"] = Brush(light ? (0xC6, 0x28, 0x28) : (0xFF, 0x9B, 0x9B));
+        res["StatusLiveBrush"] = res["StatusSuccessBrush"];
+        res["RxAccentBrush"] = Brush(light ? (0x16, 0x68, 0xC1) : (0x7C, 0xBC, 0xFD));
+        res["TxAccentBrush"] = Brush(light ? (0xB4, 0x6E, 0x00) : (0xFF, 0xC6, 0x84));
+        res["OkAccentBrush"] = Brush(light ? (0x14, 0x8A, 0x46) : (0x58, 0xC6, 0x67));
+        res["ErrAccentBrush"] = Brush(light ? (0xD3, 0x2F, 0x2F) : (0xFF, 0x6D, 0x7F));
+    }
+
+    static SolidColorBrush Brush((int R, int G, int B) c)
+    {
+        var brush = new SolidColorBrush(Color.FromRgb((byte)c.R, (byte)c.G, (byte)c.B));
+        brush.Freeze();
+        return brush;
     }
 
     /// <summary>三类未处理异常全部落日志：UI 异常弹窗后继续运行，致命/任务异常只留痕。</summary>
@@ -40,8 +66,9 @@ public partial class App : Application
     {
         DispatcherUnhandledException += (_, e) =>
         {
-            Dbg.Log($"ERROR UI 未处理异常: {e.Exception}");
-            MessageBox.Show($"发生未处理异常，详情见日志文件夹中的最新 .log：\n{e.Exception.Message}",
+            Exception root = e.Exception.GetBaseException();
+            Dbg.Log($"ERROR UI 未处理异常: {e.Exception}\nROOT {root.GetType().FullName}: {root.Message}");
+            MessageBox.Show($"发生未处理异常，详情见日志文件夹中的最新 .log：\n{root.GetType().Name}: {root.Message}",
                 "GinkgoHost", MessageBoxButton.OK, MessageBoxImage.Error);
             e.Handled = true;
         };

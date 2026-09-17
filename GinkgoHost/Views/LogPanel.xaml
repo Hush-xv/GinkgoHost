@@ -24,16 +24,16 @@
             </Style.Triggers>
         </Style>
         <Style x:Key="OpText" TargetType="TextBlock" BasedOn="{StaticResource TagText}">
-            <Setter Property="Foreground" Value="#C9C9C9" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
             <Style.Triggers>
-                <DataTrigger Binding="{Binding Dir}" Value="RX"><Setter Property="Foreground" Value="#7CBCFD" /></DataTrigger>
-                <DataTrigger Binding="{Binding Dir}" Value="TX"><Setter Property="Foreground" Value="#FFC684" /></DataTrigger>
+                <DataTrigger Binding="{Binding Dir}" Value="RX"><Setter Property="Foreground" Value="{DynamicResource RxAccentBrush}" /></DataTrigger>
+                <DataTrigger Binding="{Binding Dir}" Value="TX"><Setter Property="Foreground" Value="{DynamicResource TxAccentBrush}" /></DataTrigger>
             </Style.Triggers>
         </Style>
         <Style x:Key="AddrText" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Consolas" />
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="#9A9A9A" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
         <!-- 状态：正常 OK 只用轻量绿字（高倍日志下避免满屏绿块）；ERR 红底 badge 保证异常一眼可见 -->
@@ -51,8 +51,8 @@
             </Style.Triggers>
         </Style>
         <Style x:Key="ResultText" TargetType="TextBlock" BasedOn="{StaticResource TagText}">
-            <Setter Property="Foreground" Value="#FF6D7F" />
-            <Style.Triggers><DataTrigger Binding="{Binding Ok}" Value="True"><Setter Property="Foreground" Value="#58C667" /></DataTrigger></Style.Triggers>
+            <Setter Property="Foreground" Value="{DynamicResource ErrAccentBrush}" />
+            <Style.Triggers><DataTrigger Binding="{Binding Ok}" Value="True"><Setter Property="Foreground" Value="{DynamicResource OkAccentBrush}" /></DataTrigger></Style.Triggers>
         </Style>
         <Style x:Key="MsText" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Consolas" />
@@ -71,25 +71,30 @@
             <Setter Property="CornerRadius" Value="4" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderBrush" Value="#30FFFFFF" />
-            <Setter Property="Foreground" Value="#A0A0A0" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
         </Style>
         <Style x:Key="LogHeaderButton" TargetType="Button">
             <Setter Property="Background" Value="Transparent" /><Setter Property="BorderThickness" Value="0" /><Setter Property="Padding" Value="8,6" />
-            <Setter Property="HorizontalContentAlignment" Value="Left" /><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="#C9C9C9" />
-            <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#16FFFFFF" /><Setter Property="Foreground" Value="#D7E5FF" /></Trigger></Style.Triggers>
+            <Setter Property="HorizontalContentAlignment" Value="Left" /><Setter Property="FontSize" Value="11" /><Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}" /><Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" /></Trigger></Style.Triggers>
         </Style>
     </UserControl.Resources>
 
-    <DockPanel Margin="8,2,4,8">
-        <Grid DockPanel.Dock="Top" Margin="4,0,0,6">
-            <Grid.ColumnDefinitions><ColumnDefinition /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="事务流" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" />
+    <DockPanel Margin="12,4,8,12">
+        <!-- 工具栏按可用宽度流式换行，窄窗不再挤压筛选或导出动作。 -->
+        <WrapPanel DockPanel.Dock="Top" Margin="4,0,0,6" VerticalAlignment="Center">
+            <WrapPanel VerticalAlignment="Center" Margin="0,0,12,4">
+                <TextBlock Text="事务证据流" Style="{StaticResource SectionTitleStyle}" VerticalAlignment="Center" />
                 <TextBlock Text="实时" Margin="8,0,0,0" FontSize="11" Foreground="{DynamicResource StatusLiveBrush}" VerticalAlignment="Center" />
                 <TextBlock x:Name="TxtCount" Margin="8,0,0,0" Opacity="0.55" VerticalAlignment="Center" />
-                <TextBlock x:Name="TxtFeedback" Margin="10,0,0,0" Foreground="#91D5A0" FontSize="11" VerticalAlignment="Center" />
-                <Border Margin="14,0,0,0" Padding="2" CornerRadius="5" Background="#1AFFFFFF" BorderBrush="#28FFFFFF" BorderThickness="1">
+                <TextBlock x:Name="TxtFeedback" Margin="10,0,0,0" Foreground="{DynamicResource StatusSuccessBrush}" FontSize="11" VerticalAlignment="Center" />
+                <TextBlock x:Name="TxtSortState" Margin="8,0,0,0" Opacity="0.48" FontSize="10.5" VerticalAlignment="Center" />
+                <Border x:Name="FailureLens" Visibility="Collapsed" Margin="10,0,0,0" Padding="7,2" CornerRadius="5"
+                        Background="#20FF6D7F" BorderBrush="#58FF6D7F" BorderThickness="1">
+                    <TextBlock x:Name="TxtFailureLens" FontSize="10.5" Foreground="{DynamicResource ErrAccentBrush}" VerticalAlignment="Center" />
+                </Border>
+                <Border Margin="14,0,0,0" Padding="2" CornerRadius="6" Background="{DynamicResource ControlFillColorDefaultBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
                     <StackPanel Orientation="Horizontal">
                         <ui:Button x:Name="BtnFilterAll" Content="全部" Tag="all" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
                         <ui:Button x:Name="BtnFilterRead" Content="读取" Tag="read" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
@@ -98,59 +103,80 @@
                         <ui:Button x:Name="BtnFilterError" Content="失败" Tag="error" Click="BtnFilter_Click" Style="{StaticResource FilterPill}" />
                     </StackPanel>
                 </Border>
-            </StackPanel>
-            <StackPanel Grid.Column="1" Orientation="Horizontal">
+            </WrapPanel>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,0,4">
                 <CheckBox x:Name="ChkFollow" Content="跟随最新" IsChecked="True" Checked="ChkFollow_Changed" Unchecked="ChkFollow_Changed" VerticalAlignment="Center" Margin="0,0,10,0" />
-                <ui:Button x:Name="BtnClear" Content="清空" Click="BtnClear_Click" Margin="0,0,6,0" />
-                <ui:Button x:Name="BtnExport" Content="导出 CSV" Click="BtnExport_Click" />
+                <ui:Button x:Name="BtnResetFilter" Content="查看全部" Click="BtnResetFilter_Click" Visibility="Collapsed" Margin="0,0,6,0" />
+                <ui:Button x:Name="BtnClear" Click="BtnClear_Click" Margin="0,0,6,0" ToolTip="清空当前全部事务记录">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="Dismiss24" FontSize="14" Margin="0,0,5,0" />
+                        <TextBlock Text="清空" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ui:Button>
+                <ui:Button x:Name="BtnExport" Click="BtnExport_Click" ToolTip="导出当前筛选下的事务记录为 CSV">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:SymbolIcon Symbol="ArrowExportLtr24" FontSize="14" Margin="0,0,5,0" />
+                        <TextBlock Text="导出 CSV" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ui:Button>
             </StackPanel>
-        </Grid>
+        </WrapPanel>
 
-        <Border x:Name="LogFrame" Background="#252525" BorderBrush="#3D3D3D" BorderThickness="1" CornerRadius="5">
+        <Border x:Name="LogFrame" Background="{DynamicResource ControlFillColorDefaultBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="10"
+                Effect="{StaticResource CardShadow}">
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                 <!-- 平面表头：信息层级由列与细分隔线承担，不再额外套卡片。 -->
-                <Border Background="#363636" BorderBrush="#505050" BorderThickness="0,0,0,1">
+                <Border Background="{DynamicResource ControlFillColorSecondaryBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
                     <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="84" />
-                                    <ColumnDefinition Width="120" />
-                                    <ColumnDefinition Width="72" />
-                                    <ColumnDefinition Width="60" />
-                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition Width="88" />
+                                    <ColumnDefinition Width="96" />
+                                    <ColumnDefinition Width="58" />
+                                    <ColumnDefinition Width="66" />
                                     <ColumnDefinition />
                                 </Grid.ColumnDefinitions>
-                                <Button Content="时间" Tag="Ts" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
-                                <Button Content="操作" Tag="Op" Grid.Column="1" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
-                                <Button Content="地址" Tag="Addr" Grid.Column="2" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
-                                <Button Content="状态" Tag="RetText" Grid.Column="3" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
-                                <Button Content="耗时" Tag="Ms" Grid.Column="4" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
-                                <Button Content="数据 HEX（双击记录复制）" Tag="HexGrouped" Grid.Column="5" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Button x:Name="BtnSortTime" Content="时间" Tag="Ts" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Button x:Name="BtnSortOp" Content="操作" Tag="Op" Grid.Column="1" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Button x:Name="BtnSortAddress" Content="地址" Tag="Addr" Grid.Column="2" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Button x:Name="BtnSortStatus" Content="状态" Tag="RetText" Grid.Column="3" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" />
+                                <Button x:Name="BtnSortData" Content="数据预览" Tag="HexGrouped" Grid.Column="4" Click="BtnSort_Click" Style="{StaticResource LogHeaderButton}" ToolTip="选中行后在底部查看完整数据与耗时" />
                     </Grid>
                 </Border>
 
                 <ListBox x:Name="Lst" Grid.Row="1" FontSize="13" BorderThickness="0" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                         SelectionChanged="Lst_SelectionChanged" PreviewMouseDoubleClick="Lst_DoubleClick" ToolTip="单击查看记录；双击复制数据">
+                         VirtualizingPanel.VirtualizationMode="Recycling" VirtualizingPanel.ScrollUnit="Pixel"
+                         SelectionChanged="Lst_SelectionChanged" PreviewMouseDoubleClick="Lst_DoubleClick" PreviewKeyDown="Lst_PreviewKeyDown"
+                         PreviewMouseRightButtonDown="Lst_PreviewMouseRightButtonDown"
+                         ToolTip="单击查看完整数据；Ctrl+C 复制完整记录；双击复制数据">
+                    <ListBox.ContextMenu>
+                        <ContextMenu Opened="Lst_ContextMenuOpened">
+                            <MenuItem x:Name="MnuCopyRecord" Header="复制完整记录" Click="MnuCopyRecord_Click" />
+                        </ContextMenu>
+                    </ListBox.ContextMenu>
                     <ListBox.ItemContainerStyle>
                         <Style TargetType="ListBoxItem">
                             <Setter Property="HorizontalContentAlignment" Value="Stretch" /><Setter Property="Padding" Value="0" /><Setter Property="MinHeight" Value="34" />
-                            <Setter Property="BorderBrush" Value="#333333" /><Setter Property="BorderThickness" Value="0,0,0,1" />
+                            <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" /><Setter Property="BorderThickness" Value="0,0,0,1" />
                             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                             <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="#0AFFFFFF" /></Trigger>
-                                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="#183E67A8" /><Setter Property="BorderBrush" Value="#6686B8FF" /></Trigger>
+                                <Trigger Property="IsMouseOver" Value="True"><Setter Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}" /></Trigger>
+                                <Trigger Property="IsSelected" Value="True"><Setter Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}" /><Setter Property="BorderBrush" Value="{DynamicResource AccentFillColorDefaultBrush}" /></Trigger>
+                                <DataTrigger Binding="{Binding Ok}" Value="False">
+                                    <Setter Property="BorderBrush" Value="{DynamicResource StatusErrorBrush}" />
+                                    <Setter Property="BorderThickness" Value="3,0,0,1" />
+                                </DataTrigger>
                             </Style.Triggers>
                         </Style>
                     </ListBox.ItemContainerStyle>
                     <ListBox.ItemTemplate>
                         <DataTemplate>
-                            <Grid Margin="8,4">
+                            <Grid Margin="8,5">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="84" />
-                                    <ColumnDefinition Width="120" />
-                                    <ColumnDefinition Width="72" />
-                                    <ColumnDefinition Width="60" />
-                                    <ColumnDefinition Width="64" />
+                                    <ColumnDefinition Width="88" />
+                                    <ColumnDefinition Width="96" />
+                                    <ColumnDefinition Width="58" />
+                                    <ColumnDefinition Width="66" />
                                     <ColumnDefinition />
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="{Binding Time}" FontFamily="Consolas" FontSize="12" Opacity="0.62" VerticalAlignment="Center" />
@@ -161,25 +187,38 @@
                                 <Border Grid.Column="3" Style="{StaticResource ResultChip}" HorizontalAlignment="Left">
                                     <TextBlock Text="{Binding RetText}" Style="{StaticResource ResultText}" />
                                 </Border>
-                                <TextBlock Grid.Column="4" Text="{Binding Ms, StringFormat={}{0:F1} ms}" Style="{StaticResource MsText}" />
-                                <TextBlock Grid.Column="5" Text="{Binding DataDisplay}" FontFamily="Consolas" FontSize="13"
-                                           Foreground="#D8DEE6" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                <TextBlock Grid.Column="4" Text="{Binding DataDisplay}" FontFamily="Consolas" FontSize="13"
+                                           Foreground="{DynamicResource TextFillColorPrimaryBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                                            ToolTipService.ToolTip="{Binding DataDisplay}" />
                             </Grid>
                         </DataTemplate>
                     </ListBox.ItemTemplate>
                 </ListBox>
 
-                <Border x:Name="SelectedRecordPanel" Grid.Row="2" Padding="10,6" Background="#0AFFFFFF" BorderBrush="#20FFFFFF" BorderThickness="0,1,0,0" Visibility="Collapsed">
-                    <DockPanel>
-                        <TextBlock x:Name="TxtSelectedData" DockPanel.Dock="Right" FontFamily="Consolas" Foreground="#BFCBFF" TextTrimming="CharacterEllipsis" MaxWidth="460" />
-                        <TextBlock x:Name="TxtSelectedSummary" Opacity="0.72" TextTrimming="CharacterEllipsis" />
-                    </DockPanel>
+                <Border x:Name="SelectedRecordPanel" Grid.Row="2" Padding="10,7" Background="{DynamicResource ControlFillColorDefaultBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Visibility="Collapsed">
+                    <Grid>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <DockPanel LastChildFill="True">
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="12,0,0,0">
+                                <TextBlock Text="完整数据 · Ctrl+C" FontSize="11" Opacity="0.52" VerticalAlignment="Center" Margin="0,0,7,0" />
+                                <ui:Button x:Name="BtnCopySelected" Content="复制" Click="BtnCopySelected_Click" FontSize="10" Padding="7,1" ToolTip="复制当前记录完整信息" />
+                            </StackPanel>
+                            <TextBlock x:Name="TxtSelectedSummary" Opacity="0.72" TextTrimming="CharacterEllipsis" />
+                        </DockPanel>
+                        <Border Grid.Row="1" Margin="0,5,0,0" Padding="7,4" Background="{DynamicResource ControlFillColorSecondaryBrush}" CornerRadius="6">
+                            <ScrollViewer MaxHeight="72" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
+                                <TextBlock x:Name="TxtSelectedData" FontFamily="Consolas" Foreground="{DynamicResource TextFillColorPrimaryBrush}" TextWrapping="Wrap" />
+                            </ScrollViewer>
+                        </Border>
+                    </Grid>
                 </Border>
 
-                <TextBlock Grid.Row="1" Text="暂无事务记录&#x0a;连接适配器后，可从“扫描总线”或“读取”开始" HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.42" TextAlignment="Center" LineHeight="22" IsHitTestVisible="False">
-                    <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasItems, ElementName=Lst}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
-                </TextBlock>
+                <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False" TextBlock.TextAlignment="Center">
+                    <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasItems, ElementName=Lst}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></StackPanel.Style>
+                    <ui:SymbolIcon Symbol="ArrowClockwise24" FontSize="34" Opacity="0.30" HorizontalAlignment="Center" />
+                    <TextBlock Text="暂无事务记录" FontSize="13" FontWeight="SemiBold" Opacity="0.55" Margin="0,8,0,0" />
+                    <TextBlock Text="连接适配器后，可从“扫描总线”或“读取”开始" FontSize="11" Opacity="0.42" Margin="0,4,0,0" />
+                </StackPanel>
             </Grid>
         </Border>
     </DockPanel>

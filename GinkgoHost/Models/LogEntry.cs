@@ -6,18 +6,32 @@ namespace GinkgoHost.Models;
 /// <param name="Dir">方向：RX=读 TX=写 SYS=系统事件，用于方向配色。</param>
 public sealed record LogEntry(DateTime Ts, string Dir, string Op, string Addr, int Ret, double Ms, byte[]? Data)
 {
-    public string Time => Ts.ToString("HH:mm:ss.fff");
+    // 展示属性被 WPF 双绑定（Text + ToolTip）、排序与 CSV 导出反复读取，一律懒计算一次。
+    private string? _time;
+    private string? _retText;
+    private string? _hex;
+    private string? _hexGrouped;
+    private string? _dataDisplay;
+
+    public string Time => _time ??= Ts.ToString("HH:mm:ss.fff");
     public bool Ok => Ret == 0;
-    public string RetText => Ret == 0 ? "OK" : $"ERR {Ret}";
-    public string Hex => Data is { Length: > 0 } ? Convert.ToHexString(Data) : string.Empty;
+    public string RetText => _retText ??= Ret == 0 ? "OK" : $"ERR {Ret}";
+    public string Hex => _hex ??= Data is { Length: > 0 } ? Convert.ToHexString(Data) : string.Empty;
     // 工程惯例：FF FF FF 空格分隔；进制由列名与输入框标注，不在每条记录加 0x 前缀
-    public string HexGrouped => Data is not { Length: > 0 }
+    public string HexGrouped => _hexGrouped ??= Data is not { Length: > 0 }
         ? "—"
         : string.Join(" ", Convert.ToHexString(Data).Chunk(2).Select(c => new string(c)));
-    // SYS 事件的 Data 携带 UTF-8 人类可读详情（如 CH1 · 400 kHz），事务数据显示文本而非 hex
-    public string DataDisplay => Dir == "SYS" && Data is { Length: > 0 }
-        ? System.Text.Encoding.UTF8.GetString(Data)
-        : HexGrouped;
+    // SYS 事件的 Data 约定携带 UTF-8 人类可读详情（如 CH1 · 400 kHz、命中地址列表）。
+    // 含控制字节时（历史路径可能塞原始地址字节）回退 hex 展示，不显示乱码菱形。
+    public string DataDisplay => _dataDisplay ??= DecodeDisplay();
+
+    private string DecodeDisplay()
+    {
+        if (Dir != "SYS" || Data is not { Length: > 0 }) return HexGrouped;
+        string text = System.Text.Encoding.UTF8.GetString(Data);
+        bool printable = !text.Any(char.IsControl);
+        return printable ? text : HexGrouped;
+    }
 }
 
 public static class LogCollectionExtensions

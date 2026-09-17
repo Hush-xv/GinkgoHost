@@ -12,26 +12,45 @@
             </ResourceDictionary.MergedDictionaries>
             <!-- DataGrid 模板列不在可视树，转换器放 App 级才能被 StaticResource 解析 -->
             <views:DirIndexConverter x:Key="DirIndex" />
-            <!-- 状态色统一从资源获取，运行时主题与控件代码不再散落硬编码 RGB。 -->
+            <!-- 状态色统一从资源获取，运行时主题与控件代码不再散落硬编码 RGB。
+                 暗色为默认值；启动与主题切换时 App.ApplyThemePalette 按当前主题整组替换。 -->
             <SolidColorBrush x:Key="StatusSuccessBrush" Color="#91D5A0" />
             <SolidColorBrush x:Key="StatusErrorBrush" Color="#FF9B9B" />
             <SolidColorBrush x:Key="StatusLiveBrush" Color="#91D5A0" />
+            <SolidColorBrush x:Key="RxAccentBrush" Color="#7CBCFD" />
+            <SolidColorBrush x:Key="TxAccentBrush" Color="#FFC684" />
+            <SolidColorBrush x:Key="OkAccentBrush" Color="#58C667" />
+            <SolidColorBrush x:Key="ErrAccentBrush" Color="#FF6D7F" />
+
+            <!-- 布局令牌：全页面共用 4px 节奏与同一圆角尺度，避免控件各自定义间距。 -->
+            <Thickness x:Key="PageContentMargin">20,16,20,28</Thickness>
+            <CornerRadius x:Key="SurfaceCornerRadius">12</CornerRadius>
+            <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+            <!-- 卡片海拔：主容器统一的柔和投影，亮暗主题通用；只用于少量静态容器，不进虚拟化列表。 -->
+            <DropShadowEffect x:Key="CardShadow" BlurRadius="14" ShadowDepth="2" Direction="270" Opacity="0.30" Color="#000000" />
+            <DropShadowEffect x:Key="CardShadowSoft" BlurRadius="10" ShadowDepth="1" Direction="270" Opacity="0.22" Color="#000000" />
+            <Style x:Key="SubtleSurfaceStyle" TargetType="Border">
+                <Setter Property="CornerRadius" Value="{StaticResource SurfaceCornerRadius}" />
+                <Setter Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+            </Style>
 
             <!-- Shared visual language -->
             <Style x:Key="PageTitleStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="24" />
+                <Setter Property="FontSize" Value="26" />
                 <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="Margin" Value="4,0,0,4" />
+                <Setter Property="Margin" Value="0,0,0,6" />
             </Style>
             <Style x:Key="PageSubtitleStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="12" />
+                <Setter Property="FontSize" Value="13" />
                 <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
-                <Setter Property="Margin" Value="4,0,0,18" />
+                <Setter Property="Margin" Value="0,0,0,24" />
             </Style>
             <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
-                <Setter Property="FontSize" Value="14" />
+                <Setter Property="FontSize" Value="13" />
                 <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="Margin" Value="4,4,0,8" />
+                <Setter Property="Margin" Value="0,0,0,8" />
             </Style>
             <Style x:Key="FieldLabelStyle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12" />

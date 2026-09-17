@@ -9,8 +9,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>GinkgoHost</RootNamespace>
-    <Version>0.9.3</Version>
-    <InformationalVersion>0.9.3-beta</InformationalVersion>
+    <Version>0.9.5</Version>
+    <InformationalVersion>0.9.5-beta</InformationalVersion>
     <ApplicationIcon>Assets\GinkgoHost.ico</ApplicationIcon>
   </PropertyGroup>
 
