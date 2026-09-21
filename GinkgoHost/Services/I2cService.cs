@@ -94,6 +94,8 @@ public sealed class I2cService : IDisposable
     public async Task<(int Count, int Ret)> ConnectAsync(int channel, uint clockHz, byte controlMode)
     {
         ValidateConfig(channel, clockHz, controlMode);
+        // 从机页持有适配器时拒绝主机连接：同一下位机不能同时跑两条会话
+        if (GinkgoDriver.SlaveSessionActive) return (-1, -20);
         await _bus.WaitAsync();
         try
         {

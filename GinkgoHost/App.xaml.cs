@@ -35,6 +35,8 @@ public partial class App : Application
         ApplyThemePalette(light);
         base.OnStartup(e);
         Dbg.Log($"App start v{typeof(App).Assembly.GetName().Version} · {Environment.OSVersion} · log {Dbg.LogDir}");
+        // 启动时静默查一次新版；结果由设置页消费，离线/失败无感
+        if (Settings.CheckUpdates) _ = Services.UpdateService.GetOrStartCheckAsync();
     }
 
     /// <summary>
@@ -88,6 +90,8 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        // 从机模拟会话兜底释放（切页不停止，仅退出时关闭设备）
+        Views.SlavePage.Shutdown();
         Dbg.Log("App.OnExit: release I2C session");
         Bus.Dispose();
         if (Settings is not null) Settings.Save();

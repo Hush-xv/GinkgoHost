@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using GinkgoHost.Native;
+using GinkgoHost.Services;
 using Wpf.Ui.Appearance;
 
 namespace GinkgoHost.Views;
@@ -13,7 +14,7 @@ public partial class SettingsPage : UserControl
     public SettingsPage()
     {
         InitializeComponent();
-        Loaded += (_, _) =>
+        Loaded += async (_, _) =>
         {
             _loading = true;
             CmbTheme.SelectedIndex = App.Settings.Theme == "Light" ? 1 : 0;
@@ -25,8 +26,57 @@ public partial class SettingsPage : UserControl
             TxtSettingsFeedback.Text = string.Empty;
             TxtLogFeedback.Text = string.Empty;
             TxtAutoConnectFeedback.Text = string.Empty;
+            TxtAppVersion.Text = $"当前版本 {UpdateService.CurrentVersion}";
+            TglCheckUpdates.IsChecked = App.Settings.CheckUpdates;
             _loading = false;
+            await RefreshUpdateStateAsync(force: false);
         };
+    }
+
+    /// <summary>启动检查与手动检查共用：拿同一任务的缓存结果，不重复请求。</summary>
+    private async Task RefreshUpdateStateAsync(bool force)
+    {
+        BtnCheckUpdate.IsEnabled = false;
+        TxtUpdateState.Text = string.Empty;
+        Task<UpdateService.UpdateInfo?> task = force
+            ? UpdateService.ForceCheckAsync()
+            : App.Settings.CheckUpdates
+                ? UpdateService.GetOrStartCheckAsync()
+                : Task.FromResult<UpdateService.UpdateInfo?>(null);
+        var info = await task;
+        BtnCheckUpdate.IsEnabled = true;
+        if (info is null)
+        {
+            if (force) SetFeedback(TxtUpdateState, "未发现新版本，或当前离线无法查询", success: true);
+            else TxtUpdateState.Text = string.Empty;
+            return;
+        }
+        TxtUpdateState.Text = $"发现新版本 {info.Tag} · ";
+        // 打开地址用编译期常量（总是最新发布页），不使用 API 返回的字符串，消除注入面
+        var link = new System.Windows.Documents.Hyperlink(
+            new System.Windows.Documents.Run("前往下载页"))
+        {
+            NavigateUri = new Uri($"https://github.com/{UpdateService.Repo}/releases/latest")
+        };
+        link.RequestNavigate += (_, e) =>
+        {
+            Dbg.OpenUrl(e.Uri.ToString());
+        };
+        TxtUpdateState.Inlines.Add(link);
+        TxtUpdateState.SetResourceReference(TextBlock.ForegroundProperty, "StatusSuccessBrush");
+    }
+
+    private void BtnCheckUpdate_Click(object sender, RoutedEventArgs e) =>
+        _ = RefreshUpdateStateAsync(force: true);
+
+    private void TglCheckUpdates_Changed(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        App.Settings.CheckUpdates = TglCheckUpdates.IsChecked == true;
+        App.Settings.Save();
+#if DEBUG
+        Dbg.Log($"SettingsPage.TglCheckUpdates_Changed: checkUpdates={App.Settings.CheckUpdates}");
+#endif
     }
 
     /// <summary>键盘切页后的第一步是主题选择；鼠标进入页面时不强制改变焦点。</summary>

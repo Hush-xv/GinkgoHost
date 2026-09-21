@@ -14,6 +14,7 @@ public partial class MainWindow : FluentWindow
 {
     private readonly DevicePage _devicePage = new();
     private readonly I2cPage _i2cPage = new();
+    private readonly SlavePage _slavePage = new();
     private readonly ConsolePage _consolePage = new();
     private readonly SettingsPage _settingsPage = new();
 
@@ -53,7 +54,13 @@ public partial class MainWindow : FluentWindow
             if (App.Settings.AutoConnect && !App.Bus.IsOpen)
                 await ConnectAsync("auto-start");
         };
-        Nav.SelectedIndex = Math.Clamp(App.Settings.LastPage, 0, 3);
+        Nav.SelectedIndex = Math.Clamp(App.Settings.LastPage, 0, 4);
+        // v0.9.8 前只有 4 页；旧设置里 2/3（控制台/设置）平移到 3/4，避免重启后落到错误页
+        if (App.Settings.LastPage is 2 or 3)
+        {
+            App.Settings.LastPage += 1;
+            Nav.SelectedIndex = Math.Clamp(App.Settings.LastPage, 0, 4);
+        }
         _windowReady = true;
         App.Bus.StateChanged += RefreshStatus;
         Closing += MainWindow_Closing;
@@ -180,7 +187,7 @@ public partial class MainWindow : FluentWindow
     private void Nav_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_windowReady) return;
-        App.Settings.LastPage = Math.Clamp(Nav.SelectedIndex, 0, 3);
+        App.Settings.LastPage = Math.Clamp(Nav.SelectedIndex, 0, 4);
         App.Settings.Save();
         Dbg.Log($"MainWindow.Nav_SelectionChanged: page={App.Settings.LastPage}");
         ShowPage();
@@ -221,6 +228,7 @@ public partial class MainWindow : FluentWindow
             Key.D2 or Key.NumPad2 => 1,
             Key.D3 or Key.NumPad3 => 2,
             Key.D4 or Key.NumPad4 => 3,
+            Key.D5 or Key.NumPad5 => 4,
             _ => -1
         };
         if (page < 0) return;
@@ -241,8 +249,9 @@ public partial class MainWindow : FluentWindow
         {
             case 0: _devicePage.FocusPrimaryAction(); break;
             case 1: _i2cPage.FocusTransactionTarget(); break;
-            case 2: _consolePage.FocusCommandInput(); break;
-            case 3: _settingsPage.FocusThemeSelector(); break;
+            case 2: _slavePage.BtnSlaveStart.Focus(); break;
+            case 3: _consolePage.FocusCommandInput(); break;
+            case 4: _settingsPage.FocusThemeSelector(); break;
         }
     }
 
@@ -280,8 +289,9 @@ public partial class MainWindow : FluentWindow
         PageHost.Content = Nav.SelectedIndex switch
         {
             0 => _devicePage,
-            2 => _consolePage,
-            3 => _settingsPage,
+            2 => _slavePage,
+            3 => _consolePage,
+            4 => _settingsPage,
             _ => _i2cPage // 默认落在 I2C
         };
     }

@@ -25,7 +25,7 @@
                        Width="34" Height="30" Margin="10,8,0,0"
                        VerticalAlignment="Top" HorizontalAlignment="Left"
                        Background="Transparent" BorderThickness="0" FontSize="15"
-                       ToolTip="显示/隐藏导航栏 · Ctrl+1–4 切换页面" />
+                       ToolTip="显示/隐藏导航栏 · Ctrl+1–5 切换页面" />
             <ui:TitleBar Grid.Column="1" Title="GinkgoHost · Ginkgo USB-I2C">
                 <!-- 使用 TitleBar 原生 Header 槽位，标题、状态和系统按钮在 DPI/窗口变化时由控件统一排版。 -->
                 <ui:TitleBar.Header>
@@ -129,6 +129,12 @@
                     <StackPanel Orientation="Horizontal" Margin="8,5">
                         <ui:SymbolIcon Symbol="PlugConnected24" Margin="0,0,10,0" />
                         <TextBlock Text="I²C" VerticalAlignment="Center" />
+                    </StackPanel>
+                </ListBoxItem>
+                <ListBoxItem>
+                    <StackPanel Orientation="Horizontal" Margin="8,5">
+                        <ui:SymbolIcon Symbol="ArrowSyncCircle24" Margin="0,0,10,0" />
+                        <TextBlock Text="从机" VerticalAlignment="Center" />
                     </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem>

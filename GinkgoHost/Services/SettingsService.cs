@@ -23,6 +23,8 @@ public sealed class SettingsService
     public bool NavOpen { get; set; } = true;
     /// <summary>启动时自动扫描并连接适配器；失败只记录日志不打扰用户。</summary>
     public bool AutoConnect { get; set; } = false;
+    /// <summary>启动时静默查一次 GitHub 最新版；有新版只在设置页提示。</summary>
+    public bool CheckUpdates { get; set; } = true;
     /// <summary>上次关闭时的窗口位置与尺寸；NaN/0 表示首次启动，走系统居中。</summary>
     public double WindowLeft { get; set; } = double.NaN;
     public double WindowTop { get; set; } = double.NaN;

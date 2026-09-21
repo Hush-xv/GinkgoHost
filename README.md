@@ -4,6 +4,16 @@
 
 GinkgoHost 将连接、读写、地址扫描、周期读取和事务证据流放进一个 WPF 桌面应用。它适合在 bring-up、寄存器验证和现场定位中快速确认一条 I²C 总线的状态。
 
+## English
+
+GinkgoHost is a Windows (WPF, .NET 8) debugging workbench for ViewTool Ginkgo USB-I²C adapters
+(e.g. VTG200A). It covers device connection & identification, bus scans, register/raw reads and
+writes, periodic polling with auto-stop, a scriptable command console (`run`/`sleep` batch files),
+an I²C-slave responder mode, register-table & init-sequence profiles, and a filterable transaction
+log with CSV export. Chinese UI. Build with `dotnet build`, run the hardware-free smoke suite via
+`dotnet run --project GinkgoHost/tests/SmokeTest`. Releases include a framework-dependent and a
+self-contained zip.
+
 ![Windows 10+](https://img.shields.io/badge/Windows-10%2B-0078D6?logo=windows11&logoColor=white)
 ![.NET 8](https://img.shields.io/badge/.NET-8-512BD4?logo=dotnet&logoColor=white)
 ![x64](https://img.shields.io/badge/Platform-x64-555555)
@@ -86,7 +96,8 @@ dotnet build .\GinkgoHost\GinkgoHost.csproj -c Release
 | 事务日志 | RX / TX / SYS 分类、失败提示、筛选与排序、复制单条记录、CSV 导出、5,000 条环形缓冲。 |
 | 控制台 | 快捷命令、历史导航、彩色输出、周期读和停止控制；输出保留最近 1,000 行，命令历史保留最近 200 条。 |
 | 扩展工作区 | 寄存器表批量读取、初始化序列、Profile 保存与载入，以及 8/16-bit 子地址支持。 |
-| 使用体验 | 亮/暗主题、响应式布局、自动连接选项、应用重启后恢复常用 I²C 设置。 |
+| 从机模拟 | 适配器作为 I²C 从机应答外部主机：可预载应答数据、实时显示主机写入内容，与主机模式自动互斥。 |
+| 使用体验 | 亮/暗主题、响应式布局、自动连接选项、启动时检查更新、应用重启后恢复常用 I²C 设置。 |
 
 <p align="center">
   <img src="docs/images/device-page.png" width="760" alt="GinkgoHost 设备页面" />
@@ -108,6 +119,8 @@ dotnet build .\GinkgoHost\GinkgoHost.csproj -c Release
 | `write <addr> [reg] <b...>` | 写入数据 | `write 49 00 de ad` |
 | `readloop <addr> [reg] <len> <ms>` | 启动周期读 | `readloop 49 00 8 500` |
 | `stop` | 停止周期读 | `stop` |
+| `run <文件>` | 按行执行脚本（`#` 注释、出错即停、Esc 中止） | `run init.txt` |
+| `sleep <ms>` | 延时，脚本编排用 | `sleep 200` |
 | `clear` | 清空控制台输出 | `clear` |
 
 `↑`、`↓` 可浏览命令历史；周期读运行时按 `Esc` 或输入 `stop` 停止。
@@ -176,7 +189,7 @@ GinkgoHost/
 
 ## 已知边界
 
-- 当前应用面向 USB–I²C 主机调试；从机模式不在此版本范围内。
+- 从机模拟仅支持硬件 I²C（通道 0，100 kHz），且启动期间会拒绝主机模式的连接；应答内容为预载的固定数据，不支持动态计算应答。
 - 板载上拉与总线电压由硬件跳线决定，应用不控制这些电气配置。
 - Software I²C 的速率由 GPIO 时序决定，不随 Hardware I²C 的速率设置变化。
 

@@ -26,6 +26,10 @@ public static class GinkgoDriver
 
     public const int SUCCESS = 0;
 
+    /// <summary>从机模拟页持有设备期间置位：I2cService.ConnectAsync 见此标志一律拒绝，
+    /// 避免主机/从机两条会话同时打开同一适配器。</summary>
+    public static volatile bool SlaveSessionActive;
+
     [StructLayout(LayoutKind.Sequential)]
     public struct VII_INIT_CONFIG
     {
@@ -125,6 +129,17 @@ public static class GinkgoDriver
     [DllImport("Ginkgo_Driver.dll")]
     public static extern int VII_ReadBytes(int DevType, int DevIndex, int I2CIndex, ushort Addr, uint SubAddr, byte[] pReadData, ushort Len);
 
+    // ── I²C 从机（InitI2C 用 MasterMode=VII_SLAVE + Addr=本机 8 位地址后生效）──
+    // 签名经真机探针确认：无数据时 SlaveReadBytes 返回 -7 (READ_NO_DATA)。
+
+    /// <summary>取出外部主机写入的数据。无数据返回 -7，pRetLen 收实际字节数。</summary>
+    [DllImport("Ginkgo_Driver.dll")]
+    public static extern int VII_SlaveReadBytes(int DevType, int DevIndex, int I2CIndex, byte[] pReadData, int Len, out int RetLen);
+
+    /// <summary>预载主机读取本机时返回的数据。</summary>
+    [DllImport("Ginkgo_Driver.dll")]
+    public static extern int VII_SlaveWriteBytes(int DevType, int DevIndex, int I2CIndex, byte[] pWriteData, int Len);
+
     /// <summary>驱动错误码转可读文本，仅覆盖常见值。</summary>
     public static string ErrorName(int ret) => ret switch
     {
@@ -136,6 +151,7 @@ public static class GinkgoDriver
         -10 => "EXECUTE_CMD_FAILD",
         -13 => "DEVICE_NOTOPEN",
         -15 => "DEVICE_NOTEXIST",
+        -20 => "SLAVE_SESSION_ACTIVE",
         _ => $"ERROR_{ret}"
     };
 }
@@ -309,5 +325,15 @@ public static class Dbg
             return ShellExecuteW(IntPtr.Zero, "open", LogDir, "", "", 1 /* SW_SHOWNORMAL */).ToInt64() > 32;
         }
         catch { return false; /* 打开失败不影响主流程 */ }
+    }
+
+    /// <summary>用系统默认浏览器打开 URL（调用方保证地址为编译期常量，不接用户/API 输入）。</summary>
+    public static bool OpenUrl(string url)
+    {
+        try
+        {
+            return ShellExecuteW(IntPtr.Zero, "open", url, "", "", 1 /* SW_SHOWNORMAL */).ToInt64() > 32;
+        }
+        catch { return false; }
     }
 }

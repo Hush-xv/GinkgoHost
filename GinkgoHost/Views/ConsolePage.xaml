@@ -32,7 +32,7 @@
                     </Border>
                     <TextBlock Text="命令控制台" FontSize="17" FontWeight="SemiBold" />
                 </DockPanel>
-                <TextBlock Text="输入时自动校验 · ↑/↓ 浏览历史 · Esc 停止轮询 · Enter 运行 · Ctrl+3"
+                <TextBlock Text="输入时自动校验 · ↑/↓ 浏览历史 · Esc 停止轮询 · Enter 运行 · Ctrl+4"
                            FontSize="11" Opacity="0.58" Margin="0,3,0,0" TextWrapping="Wrap" />
                 <TextBlock Text="快捷操作" FontSize="10" Opacity="0.48" Margin="0,9,0,0" />
                 <WrapPanel Margin="0,4,0,0">

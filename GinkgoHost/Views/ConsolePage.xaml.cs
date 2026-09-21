@@ -408,7 +408,9 @@ public partial class ConsolePage : UserControl
                 }
                 var (count, ret) = await ConnectRequested();
                 Print(count < 0
-                        ? "连接异常，详情见设备页状态卡与日志"
+                        ? ret == -20
+                            ? "从机模式运行中：请到「从机」页停止后再连接"
+                            : "连接异常，详情见设备页状态卡与日志"
                     : count == 0
                         ? "未检测到 Ginkgo 适配器"
                     : ret == 0
