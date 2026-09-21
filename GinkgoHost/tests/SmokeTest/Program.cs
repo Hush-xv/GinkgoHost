@@ -441,10 +441,10 @@ if (File.Exists(dllPath))
 }
 
 // 3. 库可加载。干净机器（如 CI）未装 ViewTool 驱动运行时，Ginkgo_Driver.dll 的
-//    依赖缺失属预期：原生调用段整体 SKIP，纯托管检查（解析器/服务校验/日志）继续。
+//    依赖缺失属预期：原生调用段整体 SKIP（不计失败），纯托管检查继续。
 bool nativeOk = NativeLibrary.TryLoad(dllPath, out nint h);
-Check("NativeLibrary 加载", nativeOk,
-    nativeOk ? "" : "依赖缺失（未装驱动运行时），原生段 SKIP");
+if (nativeOk) Check("NativeLibrary 加载", true);
+else Console.WriteLine("SKIP  NativeLibrary 加载（依赖缺失，未装驱动运行时）");
 if (h != 0) NativeLibrary.Free(h);
 Check("设备标识过滤控制字符",
     GinkgoDriver.Ascii([(byte)'S', (byte)'U', (byte)'1', (byte)'4', (byte)'8', (byte)'6', 0x07, 0]) == "SU1486");
