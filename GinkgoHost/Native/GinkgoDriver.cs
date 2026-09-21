@@ -136,9 +136,13 @@ public static class GinkgoDriver
     [DllImport("Ginkgo_Driver.dll")]
     public static extern int VII_SlaveReadBytes(int DevType, int DevIndex, int I2CIndex, byte[] pReadData, int Len, out int RetLen);
 
-    /// <summary>预载主机读取本机时返回的数据。</summary>
+    /// <summary>预载主机读取本机时返回的数据。注意是【追加】到发送队列，不是替换。</summary>
     [DllImport("Ginkgo_Driver.dll")]
     public static extern int VII_SlaveWriteBytes(int DevType, int DevIndex, int I2CIndex, byte[] pWriteData, int Len);
+
+    /// <summary>查询发送队列中尚未被主机读走的字节数（真机探针确认 out 参数为 ushort）。</summary>
+    [DllImport("Ginkgo_Driver.dll")]
+    public static extern int VII_SlaveWriteRemain(int DevType, int DevIndex, int I2CIndex, out ushort Remain);
 
     /// <summary>驱动错误码转可读文本，仅覆盖常见值。</summary>
     public static string ErrorName(int ret) => ret switch
