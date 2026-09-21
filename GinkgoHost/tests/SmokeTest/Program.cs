@@ -440,8 +440,11 @@ if (File.Exists(dllPath))
     Check("DLL 架构 x64", machine == 0x8664, $"machine=0x{machine:X4}");
 }
 
-// 3. 库可加载
-Check("NativeLibrary 加载", NativeLibrary.TryLoad(dllPath, out nint h));
+// 3. 库可加载。干净机器（如 CI）未装 ViewTool 驱动运行时，Ginkgo_Driver.dll 的
+//    依赖缺失属预期：原生调用段整体 SKIP，纯托管检查（解析器/服务校验/日志）继续。
+bool nativeOk = NativeLibrary.TryLoad(dllPath, out nint h);
+Check("NativeLibrary 加载", nativeOk,
+    nativeOk ? "" : "依赖缺失（未装驱动运行时），原生段 SKIP");
 if (h != 0) NativeLibrary.Free(h);
 Check("设备标识过滤控制字符",
     GinkgoDriver.Ascii([(byte)'S', (byte)'U', (byte)'1', (byte)'4', (byte)'8', (byte)'6', 0x07, 0]) == "SU1486");
@@ -454,16 +457,17 @@ Check("读取变化摘要定位偏移",
 Check("读取变化摘要识别相同数据",
     I2cPage.DescribeReadDelta([0x00, 0x01], [0x00, 0x01]) == "与上次读取相同");
 
-// 4. 入口点可调用：无适配器时返回 0（个数），插了返回 ≥1
-int count = GinkgoDriver.VII_ScanDevice(1);
-Check("VII_ScanDevice 可调用", count >= 0, $"适配器数={count}");
+// 4-5. 入口点可调用：无适配器时返回 0（个数）/错误码，证明调用约定正确
+if (nativeOk)
+{
+    int count = GinkgoDriver.VII_ScanDevice(1);
+    Check("VII_ScanDevice 可调用", count >= 0, $"适配器数={count}");
 
-// 5. 无设备时 Open 应返回错误码而非崩溃，证明调用约定正确
-int ret = GinkgoDriver.VII_OpenDevice(GinkgoDriver.VII_USBI2C, 0, 0);
-Check("VII_OpenDevice 错误处理", count > 0 || ret != 0, $"ret={ret} ({GinkgoDriver.ErrorName(ret)})");
+    int ret = GinkgoDriver.VII_OpenDevice(GinkgoDriver.VII_USBI2C, 0, 0);
+    Check("VII_OpenDevice 错误处理", count > 0 || ret != 0, $"ret={ret} ({GinkgoDriver.ErrorName(ret)})");
 
-// 6. 在线阶段：适配器在位时做一次真初始化 + 总线扫描，验证完整链路
-if (count > 0 && ret == 0)
+    // 6. 在线阶段：适配器在位时做一次真初始化 + 总线扫描，验证完整链路
+    if (count > 0 && ret == 0)
 {
     // 诊断：open 后留整流时间再 init；失败则断开重连重试
     Thread.Sleep(300);
@@ -506,6 +510,11 @@ if (count > 0 && ret == 0)
         $"count={refreshedCount}");
     Check("I2cService 刷新清除旧身份快照", serviceSmoke.AdapterInfo is null,
         serviceSmoke.AdapterInfo is null ? "已清除" : "仍保留旧身份");
+    }
+}
+else
+{
+    Console.WriteLine("SKIP  原生调用段（Ginkgo_Driver.dll 依赖缺失，纯托管检查继续）");
 }
 
 static int InitI2C100k()
