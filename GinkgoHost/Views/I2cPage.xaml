@@ -12,9 +12,13 @@
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="TextAlignment" Value="Center" />
             <Setter Property="Padding" Value="3,0" />
+            <Setter Property="ToolTip" Value="{Binding StatusHint}" />
             <Setter Property="Foreground" Value="{DynamicResource StatusSuccessBrush}" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Status}" Value="ERR">
+                    <Setter Property="Foreground" Value="{DynamicResource StatusErrorBrush}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="INPUT">
                     <Setter Property="Foreground" Value="{DynamicResource StatusErrorBrush}" />
                 </DataTrigger>
             </Style.Triggers>
@@ -37,6 +41,11 @@
                 <DataTrigger Binding="{Binding Status}" Value="ERR">
                     <Setter Property="Background" Value="#1A9A3E46" />
                     <Setter Property="BorderBrush" Value="#704E2A2E" />
+                    <Setter Property="BorderThickness" Value="2,0,0,0" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding Status}" Value="INPUT">
+                    <Setter Property="Background" Value="#18FFA726" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource StatusErrorBrush}" />
                     <Setter Property="BorderThickness" Value="2,0,0,0" />
                 </DataTrigger>
                 <DataTrigger Binding="{Binding SnapshotChanged}" Value="True">
@@ -89,6 +98,11 @@
         <!-- 值/数据列：窄面板下超长 HEX 以省略号截断，不硬裁切；完整值仍在编辑与日志中 -->
         <Style x:Key="ExtHexTrimStyle" TargetType="TextBlock" BasedOn="{StaticResource ExtHexTextStyle}">
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="ToolTip" Value="{Binding SnapshotHint}" />
+        </Style>
+        <Style x:Key="ExtNoteTrimStyle" TargetType="TextBlock" BasedOn="{StaticResource ExtHexTextStyle}">
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="ToolTip" Value="{Binding Note}" />
         </Style>
         <Style x:Key="ExtNumberTextStyle" TargetType="TextBlock" BasedOn="{StaticResource ExtHexTextStyle}">
             <Setter Property="TextAlignment" Value="Right" />
@@ -138,9 +152,14 @@
                 Background="{DynamicResource ControlFillColorSecondaryBrush}"
                 BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1"
                 Effect="{StaticResource CardShadowSoft}">
-            <DockPanel LastChildFill="True">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
                 <!-- 分段控件：外层药丸 + 内层平面切换，选中项浮起为主表面 -->
-                <Border DockPanel.Dock="Right" VerticalAlignment="Center" CornerRadius="8"
+                <Border Grid.Column="2" VerticalAlignment="Center" CornerRadius="8"
                         Background="{DynamicResource ControlFillColorDefaultBrush}" Padding="3" Margin="14,0,0,0"
                         BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
                     <UniformGrid Rows="1">
@@ -150,7 +169,25 @@
                                    Click="BtnTabExt_Click" BorderThickness="0" Background="Transparent" />
                     </UniformGrid>
                 </Border>
-                <WrapPanel VerticalAlignment="Center">
+
+                <!-- 宽屏信息轨：不再嵌套卡片，只保留当前工作上下文与最新证据。 -->
+                <StackPanel x:Name="HeaderContextPanel" Grid.Column="1" Orientation="Horizontal"
+                            Margin="28,0,18,0" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <StackPanel x:Name="HeaderTargetGroup" Width="200" VerticalAlignment="Center">
+                        <TextBlock Text="当前目标" FontSize="10" Opacity="0.52" />
+                        <TextBlock x:Name="TxtHeaderTarget" Text="地址未设置" FontFamily="Consolas" FontSize="12"
+                                   Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                    <Border x:Name="HeaderRecentDivider" Width="1" Height="28" Margin="22,0"
+                            VerticalAlignment="Center" Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+                    <StackPanel x:Name="HeaderRecentGroup" Width="310" VerticalAlignment="Center">
+                        <TextBlock Text="最近事务" FontSize="10" Opacity="0.52" />
+                        <TextBlock x:Name="TxtHeaderRecent" Text="尚无事务记录" FontFamily="Consolas" FontSize="12"
+                                   Margin="0,3,0,0" TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
+                </StackPanel>
+
+                <WrapPanel Grid.Column="0" VerticalAlignment="Center">
                     <StackPanel Margin="2,0,16,0" VerticalAlignment="Center">
                         <DockPanel LastChildFill="False">
                             <Border DockPanel.Dock="Right" Margin="10,0,0,0" Padding="7,2" CornerRadius="6"
@@ -211,7 +248,7 @@
                                    Click="BtnApplyHz_Click" Margin="6,0,0,0" />
                     </Grid>
                 </WrapPanel>
-            </DockPanel>
+            </Grid>
         </Border>
 
         <Grid>
@@ -229,52 +266,63 @@
                         <RowDefinition />
                     </Grid.RowDefinitions>
 
-                    <ui:Card Margin="0,0,0,10">
-                        <WrapPanel Margin="4">
-                            <TextBlock x:Name="TxtExtSlaveLabel" Text="从机地址 · 7-bit" VerticalAlignment="Center" Opacity="0.75" />
-                            <StackPanel Margin="8,0,16,0">
-                                <ui:TextBox x:Name="TxtSlave" Text="49" Width="64" MaxLength="2"
+                    <ui:Card Margin="0,0,0,8">
+                        <Grid Margin="10,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="12" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock x:Name="TxtExtSlaveLabel" Text="从机地址 · 7-bit" FontSize="10.5" Opacity="0.62" Margin="0,0,0,4" />
+                                <ui:TextBox x:Name="TxtSlave" Text="49" MaxLength="2" FontFamily="Consolas"
                                             TextChanged="TxtSlave_TextChanged" ToolTip="从机地址，HEX 格式" />
-                                <TextBlock x:Name="TxtExtAddressFeedback" Width="170" FontSize="10" Foreground="{DynamicResource StatusErrorBrush}"
-                                           TextWrapping="Wrap" Visibility="Collapsed" Margin="0,3,0,0" />
+                                <TextBlock x:Name="TxtExtAddressFeedback" FontSize="10" Foreground="{DynamicResource StatusErrorBrush}"
+                                           TextTrimming="CharacterEllipsis" Visibility="Collapsed" Margin="0,3,0,0" />
                             </StackPanel>
-                            <TextBlock Text="寄存器地址宽度" VerticalAlignment="Center" Opacity="0.75" />
-                            <ComboBox x:Name="CmbRegWidth" SelectedIndex="0" MinWidth="100" Margin="8,0,16,0">
-                                <ComboBoxItem Content="Reg 8Bit" Tag="1" />
-                                <ComboBoxItem Content="Reg 16Bit" Tag="2" />
-                            </ComboBox>
-                        </WrapPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="寄存器地址宽度" FontSize="10.5" Opacity="0.62" Margin="0,0,0,4" />
+                                <ComboBox x:Name="CmbRegWidth" SelectedIndex="0" HorizontalAlignment="Stretch">
+                                    <ComboBoxItem Content="8-bit · 00–FF" Tag="1" />
+                                    <ComboBoxItem Content="16-bit · 0000–FFFF" Tag="2" />
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
                     </ui:Card>
 
                     <StackPanel Grid.Row="1" Margin="4,0,0,8">
-                    <WrapPanel>
-                        <ui:Button x:Name="BtnSubReg" Content="寄存器表" Appearance="Primary"
-                                   Click="BtnSubReg_Click" MinWidth="96" Margin="0,0,6,6" />
-                        <ui:Button x:Name="BtnSubInit" Content="初始化序列"
-                                   Click="BtnSubInit_Click" MinWidth="96" Margin="0,0,18,6" />
-                        <TextBlock Text="Profile" VerticalAlignment="Center" Opacity="0.75" Margin="0,0,8,6" />
-                        <ComboBox x:Name="CmbProfile" MinWidth="120" Margin="0,0,8,6" />
-                        <ui:Button x:Name="BtnSave" MinWidth="76" Margin="0,0,6,6" Click="BtnSave_Click" ToolTip="把当前寄存器表与初始化序列存为 Profile">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Save24" FontSize="14" Margin="0,0,5,0" />
-                                <TextBlock Text="保存" VerticalAlignment="Center" />
-                            </StackPanel>
+                    <Border Padding="3" CornerRadius="8" Background="{DynamicResource ControlFillColorDefaultBrush}"
+                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1" Margin="0,0,0,7">
+                        <UniformGrid Rows="1">
+                            <ui:Button x:Name="BtnSubReg" Content="寄存器表" Appearance="Primary" Click="BtnSubReg_Click" CornerRadius="6" />
+                            <ui:Button x:Name="BtnSubInit" Content="初始化序列" Click="BtnSubInit_Click" CornerRadius="6" />
+                        </UniformGrid>
+                    </Border>
+                    <Grid Margin="0,0,0,7">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Profile" VerticalAlignment="Center" Opacity="0.62" Margin="0,0,8,0" />
+                        <ComboBox x:Name="CmbProfile" Grid.Column="1" MinWidth="90" Margin="0,0,6,0" IsEditable="True"
+                                  ToolTip="选择已有 Profile，或输入新名称后保存" />
+                        <ui:Button x:Name="BtnLoad" Grid.Column="2" Width="34" Margin="0,0,5,0" Click="BtnLoad_Click" ToolTip="载入 Profile">
+                            <ui:SymbolIcon Symbol="FolderOpen24" FontSize="14" />
                         </ui:Button>
-                        <ui:Button x:Name="BtnLoad" MinWidth="76" Margin="0,0,6,6" Click="BtnLoad_Click" ToolTip="载入已保存的 Profile">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="FolderOpen24" FontSize="14" Margin="0,0,5,0" />
-                                <TextBlock Text="载入" VerticalAlignment="Center" />
-                            </StackPanel>
+                        <ui:Button x:Name="BtnSave" Grid.Column="3" Width="34" Margin="0,0,5,0" Click="BtnSave_Click" ToolTip="保存或另存当前 Profile">
+                            <ui:SymbolIcon Symbol="Save24" FontSize="14" />
                         </ui:Button>
-                        <ui:Button x:Name="BtnDelete" MinWidth="76" Margin="0,0,0,6" Click="BtnDelete_Click" ToolTip="删除选中的 Profile">
-                            <StackPanel Orientation="Horizontal">
-                                <ui:SymbolIcon Symbol="Delete24" FontSize="14" Margin="0,0,5,0" />
-                                <TextBlock Text="删除" VerticalAlignment="Center" />
-                            </StackPanel>
+                        <ui:Button x:Name="BtnDelete" Grid.Column="4" Width="34" Click="BtnDelete_Click" ToolTip="删除当前 Profile">
+                            <ui:SymbolIcon Symbol="Delete24" FontSize="14" />
                         </ui:Button>
-                    </WrapPanel>
-                    <Border Padding="8,4" CornerRadius="8" Background="{DynamicResource ControlFillColorDefaultBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
-                        <TextBlock x:Name="TxtExtStatus" FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    </Grid>
+                    <Border Height="30" Padding="8,4" CornerRadius="8" Background="{DynamicResource ControlFillColorDefaultBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
+                        <TextBlock x:Name="TxtExtStatus" FontSize="12" Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
+                                   ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
                     </Border>
                     </StackPanel>
 
@@ -285,38 +333,59 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition />
                             </Grid.RowDefinitions>
-                            <DockPanel Margin="0,0,0,6" LastChildFill="False">
-                                <TextBlock Text="寄存器列表" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
-                                <ui:Button x:Name="BtnAddRow" Content="添加行" Click="BtnAddRow_Click" />
-                                <ui:Button x:Name="BtnDelRow" Content="删除选中" Click="BtnDelRow_Click"
-                                           IsEnabled="False" Margin="8,0,12,0" />
-                                <ui:Button x:Name="BtnSaveSnapshot" Content="保存快照" Click="BtnSaveSnapshot_Click"
-                                           Margin="0,0,12,0" ToolTip="保存当前读取值；下次“一键读取全部”时自动标出变化" />
-                                <ui:Button x:Name="BtnReadAll" Content="一键读取全部" Appearance="Primary" Focusable="False"
-                                           Click="BtnReadAll_Click" MinWidth="110" DockPanel.Dock="Right" />
-                                <ui:Button x:Name="BtnStopPolling" Content="停止轮询" Appearance="Danger"
-                                           Click="BtnStopPolling_Click" MinWidth="92" Margin="0,0,8,0"
-                                           DockPanel.Dock="Right" Visibility="Collapsed" />
-                            </DockPanel>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <DockPanel LastChildFill="True">
+                                    <ui:Button x:Name="BtnReadAll" Content="一键读取全部" Appearance="Primary" Focusable="False"
+                                               Click="BtnReadAll_Click" MinWidth="110" DockPanel.Dock="Right" />
+                                    <ui:Button x:Name="BtnStopPolling" Content="停止轮询" Appearance="Danger"
+                                               Click="BtnStopPolling_Click" Width="92" Margin="0,0,8,0"
+                                               DockPanel.Dock="Right" Visibility="Hidden" />
+                                    <TextBlock x:Name="TxtRegSummary" Text="寄存器列表 · 0 项" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <WrapPanel Grid.Row="1" Margin="0,7,0,0">
+                                    <ui:Button x:Name="BtnAddRow" Content="添加行" Click="BtnAddRow_Click" Margin="0,0,7,0" />
+                                    <ui:Button x:Name="BtnDelRow" Content="删除选中" Click="BtnDelRow_Click"
+                                               IsEnabled="False" Margin="0,0,7,0" />
+                                    <ui:Button x:Name="BtnDuplicateRow" Content="复制" Click="BtnDuplicateRow_Click"
+                                               IsEnabled="False" Margin="0,0,7,0" ToolTip="复制选中行 (Ctrl+D)" />
+                                    <ui:Button x:Name="BtnMoveRowUp" Content="↑" Click="BtnMoveRowUp_Click" Width="34"
+                                               IsEnabled="False" Margin="0,0,4,0" ToolTip="上移选中行" />
+                                    <ui:Button x:Name="BtnMoveRowDown" Content="↓" Click="BtnMoveRowDown_Click" Width="34"
+                                               IsEnabled="False" Margin="0,0,7,0" ToolTip="下移选中行" />
+                                    <ui:Button x:Name="BtnUndoRow" Content="撤销" Click="BtnUndoRow_Click"
+                                               IsEnabled="False" Margin="0,0,7,0" ToolTip="恢复最近删除的行 (Ctrl+Z)" />
+                                    <ui:Button x:Name="BtnSaveSnapshot" Content="保存快照" Click="BtnSaveSnapshot_Click"
+                                               Margin="0,0,9,0" ToolTip="保存本次成功读取的值；下次“一键读取全部”时自动标出变化" />
+                                    <TextBlock x:Name="TxtSnapshotState" Text="未保存快照" FontSize="10.5" Opacity="0.56"
+                                               VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                </WrapPanel>
+                            </Grid>
                             <Grid Grid.Row="1">
                             <DataGrid x:Name="GridReg" AutoGenerateColumns="False" CanUserAddRows="False"
-                                      HeadersVisibility="Column" MinHeight="200"
+                                      HeadersVisibility="Column" MinHeight="200" FrozenColumnCount="6"
                                       SelectionChanged="GridReg_SelectionChanged"
                                       PreparingCellForEdit="Grid_PreparingCellForEdit"
+                                      CellEditEnding="Grid_CellEditEnding"
+                                      PreviewKeyDown="GridReg_PreviewKeyDown"
                                       SelectionUnit="FullRow" RowStyle="{StaticResource ExtDataGridRowStyle}"
                                       CellStyle="{StaticResource ExtDataGridCellStyle}"
                                       RowBackground="Transparent" AlternatingRowBackground="{DynamicResource ControlFillColorSecondaryBrush}"
                                       Background="{DynamicResource ControlFillColorDefaultBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1"
                                       ColumnHeaderStyle="{StaticResource ExtDataGridHeaderStyle}"
-                                      FontFamily="Consolas" FontSize="12" RowHeight="32" ColumnHeaderHeight="28"
+                                      FontFamily="Consolas" FontSize="12" RowHeight="36" ColumnHeaderHeight="30"
                                       ScrollViewer.HorizontalScrollBarVisibility="Auto">
                                 <DataGrid.Columns>
                                 <!-- 列序：操作列前置、值列殿后弹性——窄面板下被压缩/滚出的只会是数据列，执行始终可见。 -->
-                                <DataGridTextColumn Header="Reg" Binding="{Binding Reg}" Width="56"
+                                <DataGridTextColumn Header="Reg/HEX" Binding="{Binding Reg}" Width="68"
                                                     ElementStyle="{StaticResource ExtCenteredTextStyle}" EditingElementStyle="{StaticResource ExtEditTextStyle}" />
-                                <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="44"
+                                <DataGridTextColumn Header="长度/B" Binding="{Binding Len}" Width="64"
                                                     ElementStyle="{StaticResource ExtCenteredNumberTextStyle}" EditingElementStyle="{StaticResource ExtNumberEditTextStyle}" />
-                                <DataGridTextColumn Header="周期" Binding="{Binding PeriodMs}" Width="52"
+                                <DataGridTextColumn Header="周期/ms" Binding="{Binding PeriodMs}" Width="66"
                                                     ElementStyle="{StaticResource ExtCenteredNumberTextStyle}" EditingElementStyle="{StaticResource ExtNumberEditTextStyle}" />
                                     <DataGridTemplateColumn Header="读写" Width="68">
                                         <DataGridTemplateColumn.CellTemplate>
@@ -328,7 +397,7 @@
                                             </DataTemplate>
                                         </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="44"
+                                <DataGridTextColumn Header="状态/ms" Binding="{Binding StatusDisplay}" Width="76"
                                                     ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
                                     <DataGridTemplateColumn Header="执行" Width="56">
                                         <DataGridTemplateColumn.CellTemplate>
@@ -338,13 +407,22 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                     </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="值" Binding="{Binding Value}" Width="*" MinWidth="70"
+                                <DataGridTextColumn Header="值/HEX" Binding="{Binding Value}" Width="*" MinWidth="90"
                                                     ElementStyle="{StaticResource ExtHexTrimStyle}" EditingElementStyle="{StaticResource ExtEditTextStyle}" />
+                                <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="120"
+                                                    ElementStyle="{StaticResource ExtNoteTrimStyle}" EditingElementStyle="{StaticResource ExtEditTextStyle}" />
                                 </DataGrid.Columns>
                             </DataGrid>
-                            <TextBlock x:Name="TxtRegEmpty" Text="尚无寄存器项 · 点击“添加行”开始配置"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       IsHitTestVisible="False" Visibility="Collapsed" />
+                            <StackPanel x:Name="TxtRegEmpty" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                        Visibility="Collapsed">
+                                <TextBlock Text="尚无寄存器项" FontSize="13" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="添加第一项，或从上方 Profile 载入已有配置" FontSize="11"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                           HorizontalAlignment="Center" Margin="0,5,0,10" />
+                                <ui:Button Content="添加第一个寄存器" Appearance="Primary" HorizontalAlignment="Center"
+                                           Click="BtnAddRow_Click" IsEnabled="{Binding IsEnabled, ElementName=BtnAddRow}" />
+                            </StackPanel>
                             </Grid>
                         </Grid>
 
@@ -354,31 +432,53 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition />
                             </Grid.RowDefinitions>
-                            <DockPanel Margin="0,0,0,6" LastChildFill="False">
-                                <TextBlock Text="初始化步骤" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,12,0" />
-                                <ui:Button x:Name="BtnAddInit" Content="添加行" Click="BtnAddInit_Click" />
-                                <ui:Button x:Name="BtnDelInit" Content="删除选中" Click="BtnDelInit_Click"
-                                           IsEnabled="False" Margin="8,0,12,0" />
-                                <ui:Button x:Name="BtnRunInit" Content="一键初始化" Appearance="Primary"
-                                           Click="BtnRunInit_Click" MinWidth="110" DockPanel.Dock="Right" />
-                            </DockPanel>
+                            <Grid Margin="0,0,0,8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <DockPanel LastChildFill="True">
+                                    <ui:Button x:Name="BtnRunInit" Content="一键初始化" Appearance="Primary"
+                                               Click="BtnRunInit_Click" MinWidth="110" DockPanel.Dock="Right" />
+                                    <ui:Button x:Name="BtnStopInit" Content="停止任务" Appearance="Danger"
+                                               Click="BtnStopPolling_Click" Width="92" Margin="0,0,8,0"
+                                               DockPanel.Dock="Right" Visibility="Hidden" />
+                                    <TextBlock x:Name="TxtInitSummary" Text="初始化步骤 · 0 项" FontWeight="SemiBold" VerticalAlignment="Center"
+                                               TextTrimming="CharacterEllipsis" />
+                                </DockPanel>
+                                <WrapPanel Grid.Row="1" Margin="0,7,0,0">
+                                    <ui:Button x:Name="BtnAddInit" Content="添加行" Click="BtnAddInit_Click" Margin="0,0,7,0" />
+                                    <ui:Button x:Name="BtnDelInit" Content="删除选中" Click="BtnDelInit_Click"
+                                               IsEnabled="False" Margin="0,0,7,0" />
+                                    <ui:Button x:Name="BtnDuplicateInit" Content="复制" Click="BtnDuplicateInit_Click"
+                                               IsEnabled="False" Margin="0,0,7,0" ToolTip="复制选中步骤 (Ctrl+D)" />
+                                    <ui:Button x:Name="BtnMoveInitUp" Content="↑" Click="BtnMoveInitUp_Click" Width="34"
+                                               IsEnabled="False" Margin="0,0,4,0" ToolTip="上移选中步骤" />
+                                    <ui:Button x:Name="BtnMoveInitDown" Content="↓" Click="BtnMoveInitDown_Click" Width="34"
+                                               IsEnabled="False" Margin="0,0,7,0" ToolTip="下移选中步骤" />
+                                    <ui:Button x:Name="BtnUndoInit" Content="撤销" Click="BtnUndoInit_Click"
+                                               IsEnabled="False" ToolTip="恢复最近删除的步骤 (Ctrl+Z)" />
+                                </WrapPanel>
+                            </Grid>
                             <Grid Grid.Row="1">
                             <DataGrid x:Name="GridInit" AutoGenerateColumns="False" CanUserAddRows="False"
-                                      HeadersVisibility="Column" MinHeight="200"
+                                      HeadersVisibility="Column" MinHeight="200" FrozenColumnCount="6"
                                       SelectionChanged="GridInit_SelectionChanged"
                                       PreparingCellForEdit="Grid_PreparingCellForEdit"
+                                      CellEditEnding="Grid_CellEditEnding"
+                                      PreviewKeyDown="GridInit_PreviewKeyDown"
                                       SelectionUnit="FullRow" RowStyle="{StaticResource ExtDataGridRowStyle}"
                                       CellStyle="{StaticResource ExtDataGridCellStyle}"
                                       RowBackground="Transparent" AlternatingRowBackground="{DynamicResource ControlFillColorSecondaryBrush}"
                                       Background="{DynamicResource ControlFillColorDefaultBrush}" BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}" BorderThickness="1"
                                       ColumnHeaderStyle="{StaticResource ExtDataGridHeaderStyle}"
-                                      FontFamily="Consolas" FontSize="12" RowHeight="32" ColumnHeaderHeight="28">
+                                      FontFamily="Consolas" FontSize="12" RowHeight="36" ColumnHeaderHeight="30">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="延时" Binding="{Binding DelayMs}" Width="52"
+                                <DataGridTextColumn Header="延时/ms" Binding="{Binding DelayMs}" Width="66"
                                                     ElementStyle="{StaticResource ExtCenteredNumberTextStyle}" EditingElementStyle="{StaticResource ExtNumberEditTextStyle}" />
-                                <DataGridTextColumn Header="Reg" Binding="{Binding Reg}" Width="56"
+                                <DataGridTextColumn Header="Reg/HEX" Binding="{Binding Reg}" Width="68"
                                                     ElementStyle="{StaticResource ExtCenteredTextStyle}" EditingElementStyle="{StaticResource ExtEditTextStyle}" />
-                                <DataGridTextColumn Header="长度" Binding="{Binding Len}" Width="44"
+                                <DataGridTextColumn Header="长度/B" Binding="{Binding Len}" Width="64"
                                                     ElementStyle="{StaticResource ExtCenteredNumberTextStyle}" EditingElementStyle="{StaticResource ExtNumberEditTextStyle}" />
                                 <DataGridTemplateColumn Header="读写" Width="68">
                                     <DataGridTemplateColumn.CellTemplate>
@@ -390,7 +490,7 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="状态" Binding="{Binding Status}" Width="44"
+                                <DataGridTextColumn Header="状态/ms" Binding="{Binding StatusDisplay}" Width="76"
                                                     ElementStyle="{StaticResource RowStatusStyle}" IsReadOnly="True" />
                                 <DataGridTemplateColumn Header="执行" Width="56">
                                     <DataGridTemplateColumn.CellTemplate>
@@ -400,13 +500,22 @@
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
                                 </DataGridTemplateColumn>
-                                <DataGridTextColumn Header="数据" Binding="{Binding Value}" Width="*" MinWidth="70"
+                                <DataGridTextColumn Header="数据/HEX" Binding="{Binding Value}" Width="*" MinWidth="90"
                                                     ElementStyle="{StaticResource ExtHexTrimStyle}" EditingElementStyle="{StaticResource ExtEditTextStyle}" />
+                                <DataGridTextColumn Header="备注" Binding="{Binding Note}" Width="120"
+                                                    ElementStyle="{StaticResource ExtNoteTrimStyle}" EditingElementStyle="{StaticResource ExtEditTextStyle}" />
                             </DataGrid.Columns>
                             </DataGrid>
-                            <TextBlock x:Name="TxtInitEmpty" Text="尚无初始化步骤 · 添加行后可保存为 Profile"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       IsHitTestVisible="False" Visibility="Collapsed" />
+                            <StackPanel x:Name="TxtInitEmpty" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                        Visibility="Collapsed">
+                                <TextBlock Text="尚无初始化步骤" FontSize="13" FontWeight="SemiBold"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="添加第一步，完成后可保存为可复用的 Profile" FontSize="11"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                           HorizontalAlignment="Center" Margin="0,5,0,10" />
+                                <ui:Button Content="添加第一个步骤" Appearance="Primary" HorizontalAlignment="Center"
+                                           Click="BtnAddInit_Click" IsEnabled="{Binding IsEnabled, ElementName=BtnAddInit}" />
+                            </StackPanel>
                             </Grid>
                         </Grid>
 
@@ -417,7 +526,7 @@
                           Visibility="Collapsed"
                           Style="{StaticResource WorkspaceSplitterStyle}"
                           ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"
-                          Cursor="SizeWE" ShowsPreview="True"
+                          Cursor="SizeWE" ShowsPreview="False"
                           DragCompleted="PanelSplitter_DragCompleted"
                           MouseDoubleClick="Splitter_DoubleClick" ToolTip="拖拽调整 · 双击复位" />
 
@@ -454,9 +563,20 @@
                                 <ColumnDefinition Width="2*" MinWidth="400" />
                             </Grid.ColumnDefinitions>
                                 <Border x:Name="DataTargetGroup" Grid.Row="0" Grid.Column="0" Style="{StaticResource DataGroupStyle}">
-                                    <WrapPanel VerticalAlignment="Center">
-                                        <!-- 标签与输入框配成一个不可拆分的换行单元，窄宽度下整组下移，标签不再和输入框分离。 -->
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,10,0">
+                                    <Grid x:Name="TargetFieldsGrid" VerticalAlignment="Center">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <!-- 每个字段组由响应式代码整组换行，不允许单个输入框随机掉队。 -->
+                                        <StackPanel x:Name="TargetSavedGroup" Grid.Column="0" Orientation="Horizontal" Margin="0,0,10,0">
                                             <TextBlock Text="目标" Style="{StaticResource DataGroupHeadingStyle}" Margin="0,0,8,0" />
                                             <Grid Width="154">
                                                 <ComboBox x:Name="CmbTarget" DisplayMemberPath="Display"
@@ -481,28 +601,28 @@
                                                 </StackPanel>
                                             </ui:Button>
                                         </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,8,0">
+                                        <StackPanel x:Name="TargetAddressGroup" Grid.Column="1" Orientation="Horizontal" Margin="0,0,8,0">
                                             <TextBlock Text="地址" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,5,0"
                                                        ToolTip="从机地址，HEX 格式" />
                                             <ui:TextBox x:Name="TxtAddr" Width="66" MaxLength="2" Style="{StaticResource CommandInputStyle}" Margin="0,0,8,0"
                                                         TextChanged="TxtAddr_TextChanged" LostFocus="TargetInput_LostFocus"
                                                         GotKeyboardFocus="Input_GotKeyboardFocus" KeyDown="FieldBox_KeyDown"
                                                         PlaceholderText="49" ToolTip="从机地址，HEX 格式；回车 = 读取" />
-                                            <ui:Button x:Name="BtnScanBus" Click="BtnScan_Click" IsEnabled="False" MinWidth="86"
+                                            <ui:Button x:Name="BtnScanBus" Click="BtnScan_Click" IsEnabled="False" Width="86" Focusable="False"
                                                        ToolTip="扫描当前通道上的从机地址 (F5)；扫描中按 F5、Esc 或点击可中止">
                                                 <Grid>
                                                     <StackPanel x:Name="PnlScanNormal" Orientation="Horizontal">
                                                         <ui:SymbolIcon Symbol="Search24" FontSize="14" Margin="0,0,5,0" />
                                                         <TextBlock Text="扫描" VerticalAlignment="Center" />
                                                     </StackPanel>
-                                                    <StackPanel x:Name="PnlScanCancel" Orientation="Horizontal" Visibility="Collapsed">
+                                                    <StackPanel x:Name="PnlScanCancel" Orientation="Horizontal" Visibility="Hidden">
                                                         <ui:SymbolIcon Symbol="Dismiss24" FontSize="14" Margin="0,0,5,0" />
                                                         <TextBlock Text="停止" VerticalAlignment="Center" />
                                                     </StackPanel>
                                                 </Grid>
                                             </ui:Button>
                                         </StackPanel>
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,8,0">
+                                        <StackPanel x:Name="TargetFormatGroup" Grid.Column="2" Orientation="Horizontal" Margin="0,0,8,0">
                                             <TextBlock Text="格式" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,5,0" />
                                             <ComboBox x:Name="CmbAddrFmt" SelectedIndex="0" Width="88"
                                                       SelectionChanged="CmbAddrFmt_SelectionChanged"
@@ -511,7 +631,7 @@
                                                 <ComboBoxItem Content="8-bit" />
                                             </ComboBox>
                                         </StackPanel>
-                                        <StackPanel Orientation="Horizontal">
+                                        <StackPanel x:Name="TargetRegisterGroup" Grid.Column="3" Orientation="Horizontal">
                                             <TextBlock Text="寄存器" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,5,0"
                                                        ToolTip="寄存器号（子地址），HEX 格式。留空 = 原始读写" />
                                             <ui:TextBox x:Name="TxtSubAddr" Text="00" MaxLength="2" Width="72" Style="{StaticResource CommandInputStyle}"
@@ -519,22 +639,34 @@
                                                         GotKeyboardFocus="Input_GotKeyboardFocus" KeyDown="FieldBox_KeyDown"
                                                         PlaceholderText="00" ToolTip="寄存器地址，HEX 格式；留空时为原始读写；回车 = 读取" />
                                         </StackPanel>
-                                    </WrapPanel>
+                                    </Grid>
                                 </Border>
                                 <Border x:Name="DataTransferGroup" Grid.Row="0" Grid.Column="1" Style="{StaticResource DataGroupStyle}" Margin="10,0,0,0">
-                                    <WrapPanel VerticalAlignment="Center">
-                                        <TextBlock Text="事务操作" Style="{StaticResource DataGroupHeadingStyle}" VerticalAlignment="Center" Margin="0,0,12,0" />
-                                        <StackPanel Orientation="Horizontal" Margin="0,0,12,0">
+                                    <Grid x:Name="TransferFieldsGrid" VerticalAlignment="Center">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="TransferHeading" Grid.Column="0" Text="事务操作" Style="{StaticResource DataGroupHeadingStyle}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                                        <StackPanel x:Name="TransferLengthGroup" Grid.Column="1" Orientation="Horizontal" Margin="0,0,12,0">
                                             <TextBlock Text="长度" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,5,0" />
                                             <ui:TextBox x:Name="TxtReadSize" Text="8" Width="54" MaxLength="3" Style="{StaticResource CommandInputStyle}"
                                                         TextChanged="TxtReadSize_TextChanged" LostFocus="DataInput_LostFocus"
                                                         GotKeyboardFocus="Input_GotKeyboardFocus" KeyDown="FieldBox_KeyDown"
                                                         ToolTip="每次读取 1–256 字节；回车 = 读取" />
                                         </StackPanel>
-                                        <CheckBox x:Name="ChkWriteRead" Content="写后读取" VerticalAlignment="Center" Margin="0,0,12,0"
+                                        <CheckBox x:Name="ChkWriteRead" Grid.Column="2" Content="写后读取" VerticalAlignment="Center" Margin="0,0,12,0"
                                                   Checked="TransactionContext_Changed" Unchecked="TransactionContext_Changed" />
-                                        <Border Width="1" Height="22" Background="{DynamicResource ControlStrokeColorDefaultBrush}" Margin="0,0,12,0" />
-                                        <StackPanel Orientation="Horizontal">
+                                        <Border x:Name="TransferActionDivider" Grid.Column="3" Width="1" Height="22" Background="{DynamicResource ControlStrokeColorDefaultBrush}" Margin="0,0,12,0" />
+                                        <StackPanel x:Name="TransferActions" Grid.Column="4" Orientation="Horizontal">
                                             <ui:Button x:Name="BtnRead" Click="BtnRead_Click" IsEnabled="False" MinWidth="86" Margin="0,0,6,0" Focusable="False"
                                                        ToolTip="读取数据 (Ctrl+R)">
                                                 <StackPanel Orientation="Horizontal">
@@ -550,7 +682,7 @@
                                                 </StackPanel>
                                             </ui:Button>
                                         </StackPanel>
-                                    </WrapPanel>
+                                    </Grid>
                                 </Border>
                         </Grid>
 

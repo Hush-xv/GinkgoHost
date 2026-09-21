@@ -22,11 +22,14 @@ public partial class MainWindow : FluentWindow
     private static readonly Brush DotBusy = new SolidColorBrush(Color.FromRgb(0xff, 0xa7, 0x26));
     // 204px 导航栏展开后，页面仍保留约 950px 的可用宽度。
     private const double NavAutoCollapseWidth = 1180;
+    // 收起后需明显变宽才重新展开，避免拖动窗口停在阈值附近时来回跳动。
+    private const double NavAutoExpandWidth = 1220;
     private bool _windowReady;
     private bool _navOpen = true;
     private bool _navAutoCollapsed;
     private bool _navManualOverrideAtNarrowWidth;
     private bool _connectionBusy;
+    private ConnectionAction _connectionAction = ConnectionAction.Connect;
     private bool _closing;
 
     public MainWindow()
@@ -37,6 +40,10 @@ public partial class MainWindow : FluentWindow
         SourceInitialized += (_, _) => RestoreWindowPlacement();
         _devicePage.ConnectRequested += DevicePage_ConnectRequested;
         _devicePage.WorkspaceRequested += DevicePage_WorkspaceRequested;
+        // 控制台不持有第二套总线生命周期：命令走同一条漏斗，否则窗口连接期间
+        // _connectionBusy 闸门管不住命令行，用户可以并发发起第二次开合。
+        _consolePage.ConnectRequested = () => ConnectAsync("console");
+        _consolePage.DisconnectRequested = DisconnectAsync;
         _navOpen = App.Settings.NavOpen;
         ApplyNavState();
         Loaded += async (_, _) =>
@@ -108,18 +115,13 @@ public partial class MainWindow : FluentWindow
         s.WindowMaximized = p.showCmd == Win32Interop.SW_SHOWMAXIMIZED;
     }
 
-    /// <summary>窗口定位用的 Win32 物理像素接口：虚拟桌面指标、窗口矩形与还原位置。</summary>
+    /// <summary>窗口定位用的 Win32 物理像素接口：虚拟桌面指标与还原位置。</summary>
     internal static class Win32Interop
     {
-        [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
         [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int w, int ht, uint f);
         [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
-        [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr h);
         [DllImport("user32.dll")] public static extern bool GetWindowPlacement(IntPtr h, ref WINDOWPLACEMENT p);
         [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct RECT { public int L, T, R, B; }
 
         [StructLayout(LayoutKind.Sequential)]
         public struct WINDOWPLACEMENT
@@ -129,6 +131,7 @@ public partial class MainWindow : FluentWindow
             public int rcNormalLeft, rcNormalTop, rcNormalRight, rcNormalBottom;
         }
 
+        // 同值但不同语义：前者是 ShowWindow 的命令参数，后者是 WINDOWPLACEMENT.showCmd 的回报值
         public const int SW_SHOWMAXIMIZED = 3;
         public const int SW_MAXIMIZE = 3;
         public const uint SWP_NOZORDER = 0x0004;
@@ -152,14 +155,14 @@ public partial class MainWindow : FluentWindow
         if (!App.Bus.IsOpen && !operationPending) return;
 
         e.Cancel = true;
-        SetConnectionBusy(true);
+        SetConnectionBusy(true, ConnectionAction.Close);
         TxtWorkspaceState.Text = "正在关闭";
         TxtHeaderState.Text = "正在关闭…";
         TxtWorkspaceDetail.Text = "正在结束 I²C 会话…";
         Dbg.Log($"MainWindow.Closing: waiting for I2C session close; connected={App.Bus.IsOpen} busy={operationPending}");
         try
         {
-            _i2cPage.CancelScan(); // 先中止进行中的扫描，CloseAsync 才不会在服务锁上等完整轮扫描
+            _i2cPage.CancelPendingOperations("窗口关闭"); // 先中止扫描、轮询和初始化，CloseAsync 只需等待当前原生事务结束
             int ret = await App.Bus.CloseAsync();
             Dbg.Log($"MainWindow.Closing: CloseAsync ret={ret}");
         }
@@ -222,8 +225,9 @@ public partial class MainWindow : FluentWindow
         };
         if (page < 0) return;
 
+        bool pageChanged = Nav.SelectedIndex != page;
         Nav.SelectedIndex = page;
-        ShowPage();
+        if (!pageChanged) ShowPage(); // 同页快捷键仍刷新焦点，不重复触发不同页的生命周期。
         FocusKeyboardSelectedPage(page);
         e.Handled = true;
 #if DEBUG
@@ -246,7 +250,9 @@ public partial class MainWindow : FluentWindow
     {
         if (width <= 0) return;
 
-        bool narrow = width < NavAutoCollapseWidth;
+        bool narrow = _navAutoCollapsed
+            ? width < NavAutoExpandWidth
+            : width < NavAutoCollapseWidth;
         if (!narrow)
             _navManualOverrideAtNarrowWidth = false;
 
@@ -309,27 +315,34 @@ public partial class MainWindow : FluentWindow
         }
     }
 
-    private void SetConnectionBusy(bool busy)
+    private void SetConnectionBusy(bool busy, ConnectionAction action = ConnectionAction.Connect)
     {
         _connectionBusy = busy;
-        _devicePage.SetConnectionBusy(busy);
-        BtnWorkspaceConnect.Content = busy ? "连接中…" : "连接";
+        if (busy) _connectionAction = action;
+        _devicePage.SetConnectionBusy(busy, _connectionAction);
+        _consolePage.SetConnectionBusy(busy);
+        bool disconnecting = busy && _connectionAction == ConnectionAction.Disconnect;
+        bool closing = busy && _connectionAction == ConnectionAction.Close;
+        BtnWorkspaceConnect.Content = busy && !disconnecting && !closing ? "连接中…" : "连接";
+        BtnWorkspaceDisconnect.Content = disconnecting ? "断开中…" : "断开";
         BtnWorkspaceConnect.IsEnabled = !busy && !App.Bus.IsOpen;
         BtnWorkspaceDisconnect.IsEnabled = !busy && App.Bus.IsOpen;
         if (busy)
         {
             DotWorkspaceState.Fill = DotBusy;
             DotHeaderState.Fill = DotBusy;
-            TxtWorkspaceState.Text = "连接中";
-            TxtHeaderState.Text = "连接中…";
-            TxtWorkspaceDetail.Text = "正在扫描适配器并初始化 I²C…";
+            TxtWorkspaceState.Text = closing ? "正在关闭" : disconnecting ? "正在断开" : "连接中";
+            TxtHeaderState.Text = closing ? "正在关闭…" : disconnecting ? "正在断开…" : "连接中…";
+            TxtWorkspaceDetail.Text = closing ? "正在结束 I²C 会话…"
+                : disconnecting ? "正在安全释放适配器与总线…"
+                : "正在扫描适配器并初始化 I²C…";
         }
         else
         {
             RefreshStatus();
         }
 #if DEBUG
-        Dbg.Log($"MainWindow.SetConnectionBusy: busy={busy}");
+        Dbg.Log($"MainWindow.SetConnectionBusy: busy={busy} action={_connectionAction}");
 #endif
     }
 
@@ -338,7 +351,6 @@ public partial class MainWindow : FluentWindow
     private void DevicePage_WorkspaceRequested(object? sender, EventArgs e)
     {
         Nav.SelectedIndex = 1;
-        ShowPage();
         _i2cPage.FocusTransactionTarget();
 #if DEBUG
         Dbg.Log("MainWindow.DevicePage_WorkspaceRequested: opened I2C workspace");
@@ -347,14 +359,17 @@ public partial class MainWindow : FluentWindow
 
     private async void BtnWorkspaceConnect_Click(object sender, RoutedEventArgs e) => await ConnectAsync("workspace");
 
-    /// <summary>所有入口复用同一条连接链路，状态卡、设备页和系统日志不会出现不同步的第二套状态。</summary>
-    private async Task ConnectAsync(string source)
+    /// <summary>
+    /// 连接链路的唯一实现：状态卡、设备页、控制台与系统日志都从这里产出，避免出现互不同步的第二套状态。
+    /// 返回值供命令行回显；早退分支（已连接或另一处正在连接）只有 auto-start 与页面按钮会命中，它们不看返回值。
+    /// </summary>
+    private async Task<(int Count, int Ret)> ConnectAsync(string source)
     {
-        if (_connectionBusy || App.Bus.IsOpen) return;
+        if (_connectionBusy || App.Bus.IsOpen) return (App.Bus.AdapterCount, 0);
         Dbg.Log($"MainWindow.ConnectAsync: source={source} ch={App.Settings.Channel} clk={App.Settings.ClockHz} mode={App.Settings.ControlMode}");
         try
         {
-            SetConnectionBusy(true);
+            SetConnectionBusy(true, ConnectionAction.Connect);
             var (count, ret) = await App.Bus.ConnectAsync(
                 App.Settings.Channel, App.Settings.ClockHz, (byte)App.Settings.ControlMode);
             Dbg.Log($"MainWindow.ConnectAsync: source={source} count={count} ret={ret}");
@@ -366,6 +381,7 @@ public partial class MainWindow : FluentWindow
                 logRet == 0
                     ? System.Text.Encoding.UTF8.GetBytes($"Ginkgo · CH{App.Settings.Channel} · {App.Settings.ClockHz / 1000} kHz")
                     : System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(logRet))));
+            return (count, ret);
         }
         catch (Exception ex)
         {
@@ -374,27 +390,34 @@ public partial class MainWindow : FluentWindow
             App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "连接适配器", "—", -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
             RefreshStatus();
+            return (-1, -1); // 负适配器数即「链路异常」，与控制台回显区分开未检测到设备
         }
         finally { SetConnectionBusy(false); }
     }
 
-    private async void BtnWorkspaceDisconnect_Click(object sender, RoutedEventArgs e)
+    private async void BtnWorkspaceDisconnect_Click(object sender, RoutedEventArgs e) => await DisconnectAsync();
+
+    /// <summary>断开链路的唯一实现，工作台按钮与控制台 disconnect 共用。返回驱动错误码，0=成功。</summary>
+    private async Task<int> DisconnectAsync()
     {
-        Dbg.Log("MainWindow.BtnWorkspaceDisconnect_Click: start");
+        Dbg.Log("MainWindow.DisconnectAsync: start");
         try
         {
-            SetConnectionBusy(true);
+            SetConnectionBusy(true, ConnectionAction.Disconnect);
+            _i2cPage.CancelPendingOperations("断开设备");
             int ret = await App.Bus.CloseAsync();
-            Dbg.Log($"MainWindow.BtnWorkspaceDisconnect_Click: ret={ret}");
+            Dbg.Log($"MainWindow.DisconnectAsync: ret={ret}");
             App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "断开适配器", "—", ret, 0,
                 ret == 0 ? null : System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(ret))));
+            return ret;
         }
         catch (Exception ex)
         {
-            Dbg.Log($"MainWindow.BtnWorkspaceDisconnect_Click: failed={ex.Message}");
+            Dbg.Log($"MainWindow.DisconnectAsync: failed={ex.Message}");
             App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "断开适配器", "—", -1, 0,
                 System.Text.Encoding.UTF8.GetBytes(ex.Message)));
             RefreshStatus();
+            return -1;
         }
         finally { SetConnectionBusy(false); }
     }

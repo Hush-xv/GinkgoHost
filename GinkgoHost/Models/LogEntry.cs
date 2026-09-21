@@ -1,4 +1,7 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using GinkgoHost.Native;
 
 namespace GinkgoHost.Models;
 
@@ -44,5 +47,33 @@ public static class LogCollectionExtensions
         log.Add(e);
         if (log.Count > Cap)
             log.RemoveAt(0);
+    }
+}
+
+/// <summary>
+/// 应用主事务流使用的分批淘汰集合。数据上限不变，但不再在满容量后为每条记录发送一次 Remove 通知。
+/// </summary>
+public sealed class CappedLogCollection : ObservableCollection<LogEntry>
+{
+    private const int TrimBatch = 128;
+#if DEBUG
+    private int _trimCount;
+#endif
+
+    public void AddCapped(LogEntry entry)
+    {
+        Add(entry);
+        if (Count <= LogCollectionExtensions.Cap) return;
+
+        int removeCount = Math.Min(TrimBatch, Count);
+        for (int i = 0; i < removeCount; i++) Items.RemoveAt(0);
+        OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+        OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+        OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+#if DEBUG
+        _trimCount++;
+        if ((_trimCount & 0x0F) == 1)
+            Dbg.Log($"CappedLogCollection.AddCapped: batchTrim={removeCount} retained={Count} trims={_trimCount}");
+#endif
     }
 }

@@ -9,6 +9,9 @@ using GinkgoHost.Views;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 
+// Dbg 落盘是异步的，而本程序各分支用 return 立即退出进程：注册退出钩子把队尾日志刷出去
+AppDomain.CurrentDomain.ProcessExit += (_, _) => Dbg.Flush();
+
 // ── 日志显示边界测试：--log-display，不访问硬件。 ──
 // 验证长 HEX 数据完整保留、行内可截断显示的源字符串不换行，以及 5,000 条上限。
 if (args.Length > 0 && args[0] == "--log-display")
@@ -31,6 +34,20 @@ if (args.Length > 0 && args[0] == "--log-display")
     bool capPass = log.Count == LogCollectionExtensions.Cap && log[0].Ts == start.AddMilliseconds(100);
     Console.WriteLine($"{(capPass ? "PASS" : "FAIL")}  日志上限 {log.Count}/{LogCollectionExtensions.Cap}，最旧记录正确淘汰");
 
+    var appLog = new CappedLogCollection();
+    int resetCount = 0, removeCount = 0;
+    appLog.CollectionChanged += (_, e) =>
+    {
+        if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset) resetCount++;
+        if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove) removeCount++;
+    };
+    for (int i = 0; i <= LogCollectionExtensions.Cap; i++)
+        appLog.AddCapped(new LogEntry(start.AddMilliseconds(i), "RX", "READ", "0x92", 0, 0.1, [(byte)i]));
+    bool batchCapPass = appLog.Count == LogCollectionExtensions.Cap + 1 - 128 &&
+                        appLog[0].Ts == start.AddMilliseconds(128) && resetCount == 1 && removeCount == 0;
+    Console.WriteLine($"{(batchCapPass ? "PASS" : "FAIL")}  应用日志批量淘汰 count={appLog.Count} reset={resetCount} remove={removeCount}");
+    if (!batchCapPass) displayFailures++;
+
     // SYS 数据含控制字节（如旧扫描路径塞的原始地址 0x08）回退 hex；可读文本原样展示
     var rawScan = new LogEntry(DateTime.UnixEpoch, "SYS", "总线扫描", "—", 0, 0, [0x08]);
     bool rawPass = rawScan.DataDisplay == "08";
@@ -39,7 +56,145 @@ if (args.Length > 0 && args[0] == "--log-display")
         System.Text.Encoding.UTF8.GetBytes("Ginkgo · CH1 · 400 kHz"));
     bool textPass = textEntry.DataDisplay == "Ginkgo · CH1 · 400 kHz";
     Console.WriteLine($"{(textPass ? "PASS" : "FAIL")}  SYS 可读文本原样展示");
-    return displayFailures == 0 && capPass && rawPass && textPass ? 0 : 1;
+
+    var snapshotRow = new RegRow { Value = "AA", SnapshotBaseline = "AA" };
+    bool snapshotEqualPass = snapshotRow.SnapshotHint == "与快照一致 · AA";
+    snapshotRow.Value = "BB";
+    snapshotRow.SnapshotChanged = true;
+    bool snapshotChangedPass = snapshotRow.SnapshotHint == "快照 AA  →  当前 BB";
+    Console.WriteLine($"{(snapshotEqualPass && snapshotChangedPass ? "PASS" : "FAIL")}  寄存器快照提示保留前后值");
+
+    var statusRow = new RegRow { StatusDetail = "事务执行成功", LastDurationMs = 0.74, Status = "OK" };
+    bool statusPass = statusRow.StatusDisplay == "OK 0.7" &&
+                      statusRow.StatusHint == "执行成功 · 耗时 0.7 ms · 事务执行成功";
+    string persistedRow = System.Text.Json.JsonSerializer.Serialize(statusRow);
+    bool transientPass = !persistedRow.Contains("StatusDisplay", StringComparison.Ordinal) &&
+                         !persistedRow.Contains("LastDurationMs", StringComparison.Ordinal) &&
+                         !persistedRow.Contains("StatusDetail", StringComparison.Ordinal);
+    Console.WriteLine($"{(statusPass && transientPass ? "PASS" : "FAIL")}  行状态耗时展示且不写入 Profile");
+
+    return displayFailures == 0 && capPass && batchCapPass && rawPass && textPass &&
+           snapshotEqualPass && snapshotChangedPass && statusPass && transientPass ? 0 : 1;
+}
+
+// ── 异步日志落盘检查：--log-async [条数]，不访问硬件 ──
+// Dbg 改为「入队 + 后台泵线程写盘」后，这里有三个前提必须成立，否则崩溃现场的末尾日志会静默丢失：
+// 入队路径不阻塞业务线程、一次 Flush 能排空队列、泵线程按入队顺序落盘。
+if (args.Length > 0 && args[0] == "--log-async")
+{
+    int lineCount = args.Length > 1 ? int.Parse(args[1]) : 5000;
+    string tag = $"ASYNC-{Guid.NewGuid():N}";
+
+    var swAsync = System.Diagnostics.Stopwatch.StartNew();
+    for (int i = 0; i < lineCount; i++) Dbg.Log($"{tag} #{i}");
+    Dbg.Log($"{tag} #END");
+    swAsync.Stop();
+    // 上限给得很宽：只为捕捉「Log 又变回同步刷盘」这类回归
+    bool fast = swAsync.ElapsedMilliseconds < 2000;
+    Console.WriteLine($"{(fast ? "PASS" : "FAIL")}  {lineCount} 行入队耗时 {swAsync.ElapsedMilliseconds} ms（异步、不刷盘）");
+
+    Dbg.Flush();
+    string file = Path.Combine(Dbg.LogDir, $"GinkgoHost_{DateTime.Now:yyyyMMdd}.log");
+    List<string> lines = [];
+    if (File.Exists(file))
+    {
+        // 当日日志可能仍被写入端打开：必须按 ReadWrite 共享来读，File.ReadAllLines 会被拒
+        using var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        using var sr = new StreamReader(fs);
+        while (sr.ReadLine() is { } readLine)
+            if (readLine.Contains(tag)) lines.Add(readLine);
+    }
+    bool noLoss = lines.Count == lineCount + 1;
+    Console.WriteLine($"{(noLoss ? "PASS" : "FAIL")}  Flush 后落盘 {lines.Count}/{lineCount + 1} 行");
+
+    bool inOrder = lines.Count == lineCount + 1 && lines[0].Contains($"{tag} #0") && lines[^1].EndsWith($"{tag} #END");
+    Console.WriteLine($"{(inOrder ? "PASS" : "FAIL")}  泵线程按入队顺序落盘");
+    Console.WriteLine($"INFO  日志文件 {file}");
+
+    return fast && noLoss && inOrder ? 0 : 1;
+}
+
+// ── 日志派生计数一致性：--log-counters，不访问硬件 ──
+// LogPanel 靠增量计数器撑住高频事务流，一旦增量与全表重算不一致，界面会显示错误的筛选命中数。
+// 这里同时验证 CountFor 与 Matches 仍描述同一个筛选语义（两者分开表达时最容易漂移）。
+if (args.Length > 0 && args[0] == "--log-counters")
+{
+    int ckFailures = 0;
+    void Ck(string name, bool ok, string detail = "")
+    {
+        Console.WriteLine($"{(ok ? "PASS" : "FAIL")}  {name}{(detail.Length > 0 ? $"  ({detail})" : "")}");
+        if (!ok) ckFailures++;
+    }
+
+    static LogEntry Entry(int i, string dir, int ret) =>
+        new(new DateTime(2026, 1, 1).AddSeconds(i), dir, "TEST", "0x50", ret, 0.1, null);
+
+    // 增量结果必须与「按 Matches 现场数出来」的基准完全一致，含末尾连续失败区间
+    static bool Agree(LogCounters c, List<LogEntry> live)
+    {
+        foreach (string f in new[] { "all", "read", "write", "system", "error" })
+            if (c.CountFor(f) != live.Count(e => LogCounters.Matches(f, e))) return false;
+        int tail = 0;
+        for (int i = live.Count - 1; i >= 0 && !live[i].Ok; i--) tail++;
+        string? latest = tail > 0 ? live[^1].RetText : null;
+        return c.Total == live.Count && c.ConsecutiveFailures == tail && c.LatestFailure == latest;
+    }
+
+    string[] dirs = ["RX", "TX", "SYS"];
+    var seq = new List<LogEntry>();
+    for (int i = 0; i < 400; i++) seq.Add(Entry(i, dirs[i % 3], i % 7 == 0 ? -10 : 0));
+    for (int i = 0; i < 5; i++) seq.Add(Entry(1000 + i, "RX", -1)); // 末尾连续失败
+
+    var counters = new LogCounters();
+    var live = new List<LogEntry>();
+    bool agreeWhileAdding = true;
+    foreach (LogEntry e in seq)
+    {
+        counters.Add(e);
+        live.Add(e);
+        agreeWhileAdding &= Agree(counters, live);
+    }
+    Ck("增量 Add 与全表基准一致（含末尾连续失败）", agreeWhileAdding);
+
+    // 模拟环形缓冲淘汰最旧记录：复刻 LogPanel 的判定——只有删除碰到末尾失败区间才重扫尾巴
+    bool agreeWhileEvicting = true;
+    while (live.Count > 0)
+    {
+        int tailStart = counters.Total - counters.ConsecutiveFailures;
+        bool touchedTail = counters.ConsecutiveFailures > 0 && 1 > tailStart;
+        LogEntry oldest = live[0];
+        live.RemoveAt(0);
+        counters.Remove(oldest);
+        if (touchedTail) counters.RecomputeTail(live);
+        agreeWhileEvicting &= Agree(counters, live);
+    }
+    Ck("逐条淘汰最旧记录后仍与基准一致", agreeWhileEvicting);
+    Ck("清空后计数归零", counters.Total == 0 && counters.CountFor("read") == 0 && counters.ConsecutiveFailures == 0);
+
+    counters.Clear();
+    counters.Rebuild(seq);
+    Ck("Clear + Rebuild 能还原全部计数", Agree(counters, seq) && counters.Total == seq.Count);
+
+    // 整段全失败的边界：这正是淘汰会命中末尾区间、需要重扫的情形
+    var allFail = new LogCounters();
+    var failLive = new List<LogEntry>();
+    bool agreeAllFail = true;
+    for (int i = 0; i < 20; i++) { var x = Entry(i, "TX", -10); allFail.Add(x); failLive.Add(x); agreeAllFail &= Agree(allFail, failLive); }
+    agreeAllFail &= allFail.ConsecutiveFailures == 20;
+    for (int i = 0; i < 10; i++)
+    {
+        int tailStart = allFail.Total - allFail.ConsecutiveFailures;
+        bool touchedTail = allFail.ConsecutiveFailures > 0 && 1 > tailStart;
+        LogEntry oldest = failLive[0];
+        failLive.RemoveAt(0);
+        allFail.Remove(oldest);
+        if (touchedTail) allFail.RecomputeTail(failLive);
+        agreeAllFail &= Agree(allFail, failLive);
+    }
+    Ck("全失败日志逐条淘汰仍一致", agreeAllFail && allFail.ConsecutiveFailures == 10,
+        $"连续失败={allFail.ConsecutiveFailures} 期望 10");
+
+    return ckFailures == 0 ? 0 : 1;
 }
 
 // ── Aardvark 探针：--aardvark [bitrateKHz] ──

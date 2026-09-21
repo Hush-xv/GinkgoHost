@@ -20,13 +20,16 @@ public partial class LogPanel : UserControl
     private ICollectionView _view = null!;
     private bool _followLatest = true;
     private readonly System.Windows.Threading.DispatcherTimer _followScrollTimer;
+    private readonly System.Windows.Threading.DispatcherTimer _summaryRefreshTimer;
     private bool _followScrollQueued;
+    private bool _summaryRefreshQueued;
     private LogEntry? _pendingFollowEntry;
-    private string _filter = "all";
+    private LogEntry? _selectedRecord;
+    private string _filter = "all"; // 取值即 XAML 里筛选按钮的 Tag
     private string? _sortProperty;
     private ListSortDirection _sortDirection = ListSortDirection.Ascending;
-    private int _consecutiveFailures;
-    private string? _latestFailure;
+    private readonly LogCounters _counters = new();
+    private string? _lastCountSignature;
 
     public LogPanel()
     {
@@ -36,7 +39,25 @@ public partial class LogPanel : UserControl
             Interval = TimeSpan.FromMilliseconds(100)
         };
         _followScrollTimer.Tick += (_, _) => FlushFollowLatest();
+        _summaryRefreshTimer = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Background, Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(100)
+        };
+        _summaryRefreshTimer.Tick += (_, _) => FlushSummaryRefresh();
         InitializeComponent();
+        Loaded += (_, _) =>
+        {
+            QueueFollowLatest();
+            QueueSummaryRefresh();
+        };
+        Unloaded += (_, _) =>
+        {
+            _followScrollTimer.Stop();
+            _followScrollQueued = false;
+            _summaryRefreshTimer.Stop();
+            _summaryRefreshQueued = false;
+        };
     }
 
     public void Init(ObservableCollection<LogEntry> log)
@@ -48,13 +69,10 @@ public partial class LogPanel : UserControl
         log.CollectionChanged += OnLogChanged;
         // 智能跟随：滚动位置驱动——贴底自动跟随，向上翻阅自动停跟随（复选框同步显示）
         Lst.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(Lst_ScrollChanged));
-        _total = log.Count;
-        _okCount = log.Count(x => x.Ok);
-        RecalculateFailureLens();
+        _counters.Rebuild(log);
         UpdateFilterButtons();
         UpdateSortPresentation();
         UpdateCount();
-        UpdateLogPresentation();
     }
 
     /// <summary>仅纯用户滚动才表达用户意图；周期日志改变 Extent 时 WPF 可能同步修正 VerticalOffset，不能据此关闭跟随。</summary>
@@ -72,52 +90,43 @@ public partial class LogPanel : UserControl
 
     private void OnLogChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        // 增量维护计数：高频轮询下避免每条记录全表 LINQ 扫描
+        // 增量维护计数：高频轮询下避免每条记录全表扫描
         switch (e.Action)
         {
             case NotifyCollectionChangedAction.Add:
-                _total += e.NewItems!.Count;
-                foreach (LogEntry i in e.NewItems)
-                {
-                    if (i.Ok)
-                    {
-                        _okCount++;
-                        _consecutiveFailures = 0;
-                    }
-                    else
-                    {
-                        _consecutiveFailures++;
-                        _latestFailure = i.RetText;
-                    }
-                }
+                foreach (LogEntry i in e.NewItems!) _counters.Add(i);
                 break;
             case NotifyCollectionChangedAction.Remove:
-                // 仅当删除碰到末尾连续失败区间时才需重算。日志容量淘汰最旧项时，
+                // 仅当删除碰到末尾连续失败区间时才需重扫。日志容量淘汰最旧项时，
                 // 这只会发生在整段日志均失败的边界，避免高频轮询退化为全表扫描。
-                int failureTailStart = _total - _consecutiveFailures;
-                bool removedFromFailureTail = _consecutiveFailures > 0 &&
+                int failureTailStart = _counters.Total - _counters.ConsecutiveFailures;
+                bool removedFromFailureTail = _counters.ConsecutiveFailures > 0 &&
                     (e.OldStartingIndex < 0 || e.OldStartingIndex + e.OldItems!.Count > failureTailStart);
-                _total -= e.OldItems!.Count;
-                foreach (LogEntry i in e.OldItems) if (i.Ok) _okCount--;
+                foreach (LogEntry i in e.OldItems!) _counters.Remove(i);
                 if (removedFromFailureTail)
                 {
-                    RecalculateFailureLens();
+                    _counters.RecomputeTail(_log);
 #if DEBUG
                     Dbg.Log("LogPanel.OnLogChanged: recalculated failure lens after removing its tail");
 #endif
                 }
                 break;
             case NotifyCollectionChangedAction.Reset:
-                _total = 0; _okCount = 0;
-                _consecutiveFailures = 0; _latestFailure = null;
+                _counters.Rebuild(_log);
+                if (_selectedRecord is { } selected && _log.Contains(selected) && MatchesFilter(selected))
+                {
+                    Dispatcher.BeginInvoke(() =>
+                    {
+                        if (_log.Contains(selected) && MatchesFilter(selected)) Lst.SelectedItem = selected;
+                    }, System.Windows.Threading.DispatcherPriority.Background);
+                }
+                else ClearSelectedRecord();
                 break;
             default:
-                _total = _log.Count; _okCount = _log.Count(x => x.Ok);
-                RecalculateFailureLens();
+                _counters.Rebuild(_log);
                 break;
         }
-        UpdateCount();
-        UpdateLogPresentation();
+        QueueSummaryRefresh();
         if (_followLatest && e.Action == NotifyCollectionChangedAction.Add &&
             e.NewItems!.OfType<LogEntry>().LastOrDefault(MatchesFilter) is { } latestVisible)
         {
@@ -130,10 +139,25 @@ public partial class LogPanel : UserControl
         }
     }
 
+    /// <summary>计数、失败透镜和按钮状态按 100 ms 合并刷新，计数器本身仍逐笔更新。</summary>
+    private void QueueSummaryRefresh()
+    {
+        if (!IsLoaded || _summaryRefreshQueued) return;
+        _summaryRefreshQueued = true;
+        _summaryRefreshTimer.Start();
+    }
+
+    private void FlushSummaryRefresh()
+    {
+        _summaryRefreshTimer.Stop();
+        _summaryRefreshQueued = false;
+        UpdateCount();
+    }
+
     /// <summary>高频证据流按短间隔合并滚动：所有记录已入集合，只合并昂贵的列表定位。</summary>
     private void QueueFollowLatest()
     {
-        if (!_followLatest || _followScrollQueued || Lst is null || Lst.Items.Count == 0) return;
+        if (!IsLoaded || !_followLatest || _followScrollQueued || Lst is null || Lst.Items.Count == 0) return;
         _pendingFollowEntry ??= LatestVisibleEntry();
         if (_pendingFollowEntry is null) return;
         _followScrollQueued = true;
@@ -152,14 +176,6 @@ public partial class LogPanel : UserControl
 
     /// <summary>排序可改变视觉顺序，不能把末行当作最新事务；按时间找当前可见的最新项。</summary>
     private LogEntry? LatestVisibleEntry() => Lst.Items.OfType<LogEntry>().MaxBy(entry => entry.Ts);
-
-    /// <summary>空日志只占紧凑引导高度，出现记录后再展开为完整工作区。</summary>
-    private void UpdateLogPresentation()
-    {
-        bool empty = _log.Count == 0;
-        LogFrame.Height = empty ? 190 : double.NaN;
-        LogFrame.VerticalAlignment = empty ? VerticalAlignment.Top : VerticalAlignment.Stretch;
-    }
 
     private void Lst_DoubleClick(object sender, MouseButtonEventArgs e)
     {
@@ -245,11 +261,21 @@ public partial class LogPanel : UserControl
             SelectedRecordPanel.Visibility = Visibility.Collapsed;
             return;
         }
+        _selectedRecord = entry;
         TxtFeedback.Text = "已选中 · Ctrl+C 复制完整记录";
         TxtSelectedSummary.Text = $"{entry.Time} · {entry.Dir} · {entry.Op} · {entry.Addr} · {entry.RetText} · {entry.Ms:F1} ms";
         TxtSelectedSummary.ToolTip = TxtSelectedSummary.Text;
         TxtSelectedData.Text = entry.DataDisplay;
         SelectedRecordPanel.Visibility = Visibility.Visible;
+    }
+
+    private void ClearSelectedRecord()
+    {
+        _selectedRecord = null;
+        Lst.SelectedItem = null;
+        SelectedRecordPanel.Visibility = Visibility.Collapsed;
+        TxtSelectedSummary.Text = string.Empty;
+        TxtSelectedData.Text = string.Empty;
     }
 
     private void ChkFollow_Changed(object sender, RoutedEventArgs e)
@@ -279,9 +305,9 @@ public partial class LogPanel : UserControl
         _view.Refresh();
         UpdateFilterButtons();
         UpdateCount();
-        SelectedRecordPanel.Visibility = Visibility.Collapsed;
+        ClearSelectedRecord();
         if (_followLatest) QueueFollowLatest();
-        int shown = _view.Cast<LogEntry>().Count();
+        int shown = _counters.CountFor(filter);
         TxtFeedback.Text = shown == 0 ? $"{FilterName(filter)}：没有匹配记录" : $"已筛选：{FilterName(filter)} · {shown} 条";
         Dbg.Log($"LogPanel.BtnFilter_Click: filter={filter}");
     }
@@ -294,7 +320,7 @@ public partial class LogPanel : UserControl
         UpdateFilterButtons();
         UpdateCount();
         if (_followLatest) QueueFollowLatest();
-        TxtFeedback.Text = _total == 0 ? "暂无记录" : $"已显示全部记录 · {_total} 条";
+        TxtFeedback.Text = _counters.Total == 0 ? "暂无记录" : $"已显示全部记录 · {_counters.Total} 条";
 #if DEBUG
         Dbg.Log("LogPanel.BtnResetFilter_Click: filter reset to all");
 #endif
@@ -334,54 +360,28 @@ public partial class LogPanel : UserControl
         button.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
     }
 
-    private bool MatchesFilter(object item) => item is LogEntry entry && _filter switch
-    {
-        "read" => entry.Dir == "RX",
-        "write" => entry.Dir == "TX",
-        "system" => entry.Dir == "SYS",
-        "error" => !entry.Ok,
-        _ => true
-    };
-
-    private int _total;
-    private int _okCount;
-
-    private void RecalculateFailureLens()
-    {
-        _consecutiveFailures = 0;
-        _latestFailure = null;
-        foreach (LogEntry entry in _log)
-        {
-            if (entry.Ok)
-            {
-                _consecutiveFailures = 0;
-                _latestFailure = null;
-            }
-            else
-            {
-                _consecutiveFailures++;
-                _latestFailure = entry.RetText;
-            }
-        }
-    }
+    private bool MatchesFilter(object item) => item is LogEntry entry && LogCounters.Matches(_filter, entry);
 
     /// <summary>头部统计：条数 + 成功/失败带色计数。失败为 0 时保持灰色，只有出现失败才转红。</summary>
     private void UpdateCount()
     {
-        int shown = _filter == "all" ? _total : _view.Cast<LogEntry>().Count();
+        int shown = _counters.CountFor(_filter);
+        string signature = $"{_filter}|{shown}|{_counters.Total}|{_counters.OkCount}|{_counters.ErrCount}|{_counters.ConsecutiveFailures}|{_counters.LatestFailure}";
+        if (string.Equals(_lastCountSignature, signature, StringComparison.Ordinal)) return;
+        _lastCountSignature = signature;
         TxtCount.Inlines.Clear();
-        TxtCount.Inlines.Add(new Run(shown == _total ? $"{_total} 条" : $"{shown} / {_total} 条"));
+        TxtCount.Inlines.Add(new Run(shown == _counters.Total ? $"{_counters.Total} 条" : $"{shown} / {_counters.Total} 条"));
         // 正常计数保持辅助文字；仅异常用颜色吸引注意力（主题化错误色，亮色下同样可读）。
-        TxtCount.Inlines.Add(new Run($"   成功 {_okCount}"));
-        var failRun = new Run($"   失败 {_total - _okCount}");
+        TxtCount.Inlines.Add(new Run($"   成功 {_counters.OkCount}"));
+        var failRun = new Run($"   失败 {_counters.ErrCount}");
         failRun.SetResourceReference(TextBlock.ForegroundProperty,
-            _total - _okCount > 0 ? "StatusErrorBrush" : "TextFillColorTertiaryBrush");
+            _counters.ErrCount > 0 ? "StatusErrorBrush" : "TextFillColorTertiaryBrush");
         TxtCount.Inlines.Add(failRun);
-        BtnClear.IsEnabled = _total > 0;
+        BtnClear.IsEnabled = _counters.Total > 0;
         BtnExport.IsEnabled = shown > 0;
-        FailureLens.Visibility = _consecutiveFailures > 0 ? Visibility.Visible : Visibility.Collapsed;
-        TxtFailureLens.Text = _consecutiveFailures > 0
-            ? $"连续失败 {_consecutiveFailures} · 最近：{_latestFailure ?? "未知错误"}"
+        FailureLens.Visibility = _counters.ConsecutiveFailures > 0 ? Visibility.Visible : Visibility.Collapsed;
+        TxtFailureLens.Text = _counters.ConsecutiveFailures > 0
+            ? $"连续失败 {_counters.ConsecutiveFailures} · 最近：{_counters.LatestFailure ?? "未知错误"}"
             : string.Empty;
     }
 
@@ -436,7 +436,7 @@ public partial class LogPanel : UserControl
 
         var entries = _view.Cast<LogEntry>().ToList();
         var sb = new StringBuilder();
-        sb.AppendLine("时间,方向,操作,从机地址,结果,耗时(ms),数据(hex)");
+        sb.AppendLine("时间,方向,操作,从机地址,结果,耗时(ms),数据");
         foreach (LogEntry entry in entries)
             sb.Append(CsvCell(entry.Time)).Append(',')
               .Append(CsvCell(entry.Dir)).Append(',')
@@ -444,7 +444,8 @@ public partial class LogPanel : UserControl
               .Append(CsvCell(entry.Addr)).Append(',')
               .Append(CsvCell(entry.RetText)).Append(',')
               .Append(CsvCell(entry.Ms.ToString("F1"))).Append(',')
-              .AppendLine(CsvCell(entry.Hex));
+              // SYS 的 Data 是文字说明，按 hex 导出会丢掉排障信息；RX/TX 保持无空格 hex 便于脚本解析
+              .AppendLine(CsvCell(entry.Dir == "SYS" ? entry.DataDisplay : entry.Hex));
 
         try
         {

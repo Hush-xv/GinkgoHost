@@ -4,7 +4,8 @@
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:views="clr-namespace:GinkgoHost.Views">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="{StaticResource PageContentMargin}" MaxWidth="960" HorizontalAlignment="Center">
+        <!-- 有导航栏时内容左对齐：居中窄列在宽屏上两侧各留近 500px 空白，读起来像悬浮的网页而非原生页面。 -->
+        <StackPanel Margin="{StaticResource PageContentMargin}" MaxWidth="1120" HorizontalAlignment="Left">
 
             <TextBlock Text="设备概览" Style="{StaticResource PageTitleStyle}" />
             <TextBlock Text="查看当前适配器状态、能力与接口定义 · Ctrl+1" Style="{StaticResource PageSubtitleStyle}" />

@@ -13,14 +13,25 @@ public partial class ConsolePage : UserControl
 {
     private const int MaxHistoryCount = 200;
 
+    /// <summary>
+    ///  connect/disconnect 走宿主窗口注入的连接链路。控制台此前自行开关总线，等于持有第二套
+    /// 生命周期：窗口正在连接时命令行仍可并发发起，SYS 日志也会与状态卡、设备页脱节。
+    /// </summary>
+    public Func<Task<(int Count, int Ret)>>? ConnectRequested { get; set; }
+    public Func<Task<int>>? DisconnectRequested { get; set; }
+
+    private bool _connectionBusy;
+
     public sealed record ConsoleLine(string Line, Brush Brush);
 
-    private readonly ObservableCollection<ConsoleLine> _out = new();
+    private readonly ConsoleBuffer _out = new();
     private readonly List<string> _history = new();
     private int _historyIdx;
     private string _historyDraft = string.Empty;
     private bool _executing;
     private bool _followOutput = true;
+    private readonly System.Windows.Threading.DispatcherTimer _followOutputTimer;
+    private bool _followOutputQueued;
     private CancellationTokenSource? _readLoopCts;
 #if DEBUG
     private string? _lastCommandStateDebugText;
@@ -33,10 +44,40 @@ public partial class ConsolePage : UserControl
     private static readonly Brush Red = new SolidColorBrush(Color.FromRgb(0xE2, 0x3A, 0x37));
     private static readonly Brush Gray = new SolidColorBrush(Color.FromRgb(0x8A, 0x8A, 0x8A));
 
+    private sealed class ConsoleBuffer : ObservableCollection<ConsoleLine>
+    {
+        private const int Cap = 1000;
+        private const int TrimBatch = 64;
+
+        public void AddCapped(ConsoleLine line)
+        {
+            Add(line);
+            if (Count <= Cap) return;
+            int removeCount = Math.Min(TrimBatch, Count);
+            for (int i = 0; i < removeCount; i++) Items.RemoveAt(0);
+            OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new System.ComponentModel.PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(new System.Collections.Specialized.NotifyCollectionChangedEventArgs(
+                System.Collections.Specialized.NotifyCollectionChangedAction.Reset));
+#if DEBUG
+            Dbg.Log($"ConsolePage.ConsoleBuffer.AddCapped: batchTrim={removeCount} retained={Count}");
+#endif
+        }
+    }
+
     public ConsolePage()
     {
+        _followOutputTimer = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Background, Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(100)
+        };
+        _followOutputTimer.Tick += (_, _) => FlushFollowOutput();
         InitializeComponent();
         LstOut.ItemsSource = _out;
+        LstOut.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(LstOut_ScrollChanged));
+        // ↑/↓ 会被 TextBox 类处理器标记为已处理（光标移动），必须用 handledEventsToo 才能收到
+        TxtIn.AddHandler(KeyDownEvent, new KeyEventHandler(TxtIn_KeyDown), handledEventsToo: true);
         Print("GinkgoHost 控制台。输入 help 查看命令。", Gray);
         TxtIn.GotKeyboardFocus += (_, _) => UpdateCommandHint();
         Loaded += (_, _) =>
@@ -46,12 +87,15 @@ public partial class ConsolePage : UserControl
             UpdateCommandState();
             UpdateReadLoopActionState();
             RefreshConsoleSession();
+            QueueFollowOutput();
             FocusCommandInput(); // 切入页面后可直接输入命令
         };
         Unloaded += (_, _) =>
         {
             App.Bus.StateChanged -= OnBusStateChanged;
             StopReadLoop(false);
+            _followOutputTimer.Stop();
+            _followOutputQueued = false;
         };
     }
 
@@ -71,10 +115,38 @@ public partial class ConsolePage : UserControl
 
     private void Print(string text, Brush brush)
     {
-        _out.Add(new ConsoleLine($"[{DateTime.Now:HH:mm:ss.fff}] {text}", brush));
-        if (_out.Count > 1000) _out.RemoveAt(0); // 控制台也走环形，防长跑膨胀
+        _out.AddCapped(new ConsoleLine($"[{DateTime.Now:HH:mm:ss.fff}] {text}", brush));
+        QueueFollowOutput();
+    }
+
+    /// <summary>周期输出只合并滚动请求，数据仍逐条保留；避免每行都触发一次测量和布局。</summary>
+    private void QueueFollowOutput()
+    {
+        if (!IsLoaded || !_followOutput || _followOutputQueued || LstOut is null || LstOut.Items.Count == 0) return;
+        _followOutputQueued = true;
+        _followOutputTimer.Start();
+    }
+
+    private void FlushFollowOutput()
+    {
+        _followOutputTimer.Stop();
+        _followOutputQueued = false;
         if (_followOutput && LstOut.Items.Count > 0)
             LstOut.ScrollIntoView(LstOut.Items[^1]);
+    }
+
+    /// <summary>内容增删引起的尺寸和偏移变化不代表用户意图；纯滚动离底时才暂停跟随。</summary>
+    private void LstOut_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (e.OriginalSource is not ScrollViewer sv || sv.ScrollableHeight <= 0) return;
+        if (Math.Abs(e.ExtentHeightChange) >= double.Epsilon || Math.Abs(e.VerticalChange) < double.Epsilon) return;
+        bool atBottom = sv.VerticalOffset >= sv.ScrollableHeight - 2;
+        if (atBottom == _followOutput) return;
+        _followOutput = atBottom;
+        if (ChkFollowOutput.IsChecked != atBottom) ChkFollowOutput.IsChecked = atBottom;
+#if DEBUG
+        Dbg.Log($"ConsolePage.LstOut_ScrollChanged: follow={atBottom} offset={sv.VerticalOffset:F0}/{sv.ScrollableHeight:F0}");
+#endif
     }
 
     private void BtnClearOutput_Click(object sender, RoutedEventArgs e)
@@ -183,8 +255,7 @@ public partial class ConsolePage : UserControl
     {
         _followOutput = sender is CheckBox checkBox && checkBox.IsChecked == true;
         // XAML 设置 IsChecked 时此事件早于 LstOut 字段赋值；加载期只记住状态，待列表创建后再滚动。
-        if (_followOutput && LstOut is not null && LstOut.Items.Count > 0)
-            LstOut.ScrollIntoView(LstOut.Items[^1]);
+        if (_followOutput) QueueFollowOutput();
 #if DEBUG
         Dbg.Log($"ConsolePage.ChkFollowOutput_Changed: follow={_followOutput}");
 #endif
@@ -212,7 +283,7 @@ public partial class ConsolePage : UserControl
         var (cmd, err) = CommandParser.Parse(line);
         if (cmd is null)
         {
-            Print($"{err ?? "解析失败"} · {CommandExample()}", Red);
+            Print(err ?? "解析失败", Red);
             UpdateCommandState();
 #if DEBUG
             Dbg.Log($"ConsolePage.RunInputAsync: invalid command rejected; error={err ?? "解析失败"}");
@@ -310,30 +381,34 @@ public partial class ConsolePage : UserControl
                     Print($"已连接 · 通道 {App.Bus.Channel} · {App.Bus.ClockHz / 1000} kHz，重连请先输入 disconnect", Orange);
                     break;
                 }
-                var (count, ret) = await App.Bus.ConnectAsync(
-                    App.Settings.Channel, App.Settings.ClockHz, (byte)App.Settings.ControlMode);
-                int logRet = count <= 0 ? (count == 0 ? -15 : count) : ret;
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "控制台连接", "—", logRet, 0,
-                    logRet == 0
-                        ? System.Text.Encoding.UTF8.GetBytes($"Ginkgo · CH{App.Settings.Channel} · {App.Settings.ClockHz / 1000} kHz")
-                        : System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(logRet))));
-                Print(count <= 0
-                    ? "未检测到 Ginkgo 适配器"
+                if (ConnectRequested is null || _connectionBusy)
+                {
+                    Print("连接正在处理中，请稍候", Orange);
+                    break;
+                }
+                var (count, ret) = await ConnectRequested();
+                Print(count < 0
+                        ? "连接异常，详情见设备页状态卡与日志"
+                    : count == 0
+                        ? "未检测到 Ginkgo 适配器"
                     : ret == 0
                         ? $"已连接 · 通道 {App.Settings.Channel} · {App.Settings.ClockHz / 1000} kHz"
                         : $"打开失败：{GinkgoDriver.ErrorName(ret)}",
                     count <= 0 ? Orange : ret == 0 ? Purple : Red);
 #if DEBUG
-                Dbg.Log($"ConsolePage.Exec.ConnectCmd: adapters={count} ret={ret} logRet={logRet}");
+                Dbg.Log($"ConsolePage.Exec.ConnectCmd: adapters={count} ret={ret}");
 #endif
                 break;
             }
 
             case DisconnectCmd:
             {
-                int ret = await App.Bus.CloseAsync();
-                App.Log.AddCapped(new LogEntry(DateTime.Now, "SYS", "控制台断开", "—", ret, 0,
-                    ret == 0 ? null : System.Text.Encoding.UTF8.GetBytes(GinkgoDriver.ErrorName(ret))));
+                if (DisconnectRequested is null || _connectionBusy)
+                {
+                    Print("断开正在处理中，请稍候", Orange);
+                    break;
+                }
+                int ret = await DisconnectRequested();
                 Print(ret == 0 ? "已断开" : $"断开失败：{GinkgoDriver.ErrorName(ret)}", ret == 0 ? Gray : Red);
 #if DEBUG
                 Dbg.Log($"ConsolePage.Exec.DisconnectCmd: ret={ret}");
@@ -500,7 +575,16 @@ public partial class ConsolePage : UserControl
         if (BtnStopRead is null) return;
         bool active = _readLoopCts is not null;
         BtnStopRead.IsEnabled = active;
+        // 空闲时直接收起：置灰的 Danger 按钮带亮边框，看起来像可点的高亮项
+        BtnStopRead.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
         BtnStopRead.ToolTip = active ? "停止正在运行的周期读" : "没有正在运行的周期读";
+        RefreshConsoleSession();
+    }
+
+    /// <summary>镜像窗口的连接闸门：漏斗繁忙时命令行不重复发起开合。</summary>
+    public void SetConnectionBusy(bool busy)
+    {
+        _connectionBusy = busy;
         RefreshConsoleSession();
     }
 
@@ -510,7 +594,7 @@ public partial class ConsolePage : UserControl
         if (TxtConsoleSession is null) return;
         string connection = App.Bus.IsOpen
             ? $"CH{App.Bus.Channel} · {App.Bus.ClockHz / 1000} kHz"
-            : "未连接";
+            : _connectionBusy ? "连接处理中" : "未连接";
         string loop = _readLoopCts switch
         {
             { IsCancellationRequested: true } => "停止中",
@@ -518,7 +602,7 @@ public partial class ConsolePage : UserControl
             _ => "空闲"
         };
         TxtConsoleSession.Text = $"{connection} · {loop} · 历史 {_history.Count}";
-        TxtConsoleSession.Foreground = App.Bus.IsOpen ? Purple : Gray;
+        TxtConsoleSession.Foreground = App.Bus.IsOpen ? Purple : _connectionBusy ? Orange : Gray;
 #if DEBUG
         Dbg.Log($"ConsolePage.RefreshConsoleSession: connected={App.Bus.IsOpen} loop={loop} history={_history.Count}");
 #endif

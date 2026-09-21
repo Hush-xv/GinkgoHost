@@ -10,3 +10,9 @@ _sdk/
 # 插件/IDE 状态
 .mimosa/
 .vs/
+
+# 本机 UIA 探针脚本与截图
+probe/
+
+# GinkgoAardvark 工程的 shim 产物，不属于本仓库
+aardvark.dll

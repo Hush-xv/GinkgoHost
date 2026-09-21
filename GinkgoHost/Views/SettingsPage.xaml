@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="{StaticResource PageContentMargin}" MaxWidth="760" HorizontalAlignment="Center">
+        <!-- 与设备页一致：内容靠左成列，宽屏剩余空间落在右侧而非把页面夹成悬浮窄条。 -->
+        <StackPanel Margin="{StaticResource PageContentMargin}" MaxWidth="900" HorizontalAlignment="Left">
 
             <TextBlock Text="设置" Style="{StaticResource PageTitleStyle}" />
             <TextBlock Text="调整外观，并查看本机配置与应用信息 · Ctrl+4" Style="{StaticResource PageSubtitleStyle}" />

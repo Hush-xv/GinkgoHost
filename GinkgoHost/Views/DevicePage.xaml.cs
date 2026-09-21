@@ -9,6 +9,7 @@ public partial class DevicePage : UserControl
 {
     private bool? _lastConnected;
     private bool _connectionBusy;
+    private ConnectionAction _connectionAction = ConnectionAction.Connect;
     private string? _connectionOutcome;
 
     private static string? _cachedDriverVersion;
@@ -43,19 +44,20 @@ public partial class DevicePage : UserControl
         Unloaded += (_, _) => App.Bus.StateChanged -= Refresh;
     }
 
-    public void SetConnectionBusy(bool busy)
+    public void SetConnectionBusy(bool busy, ConnectionAction action = ConnectionAction.Connect)
     {
         if (!Dispatcher.CheckAccess())
         {
             if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
-            Dispatcher.BeginInvoke(() => SetConnectionBusy(busy));
+            Dispatcher.BeginInvoke(() => SetConnectionBusy(busy, action));
             return;
         }
         _connectionBusy = busy;
+        if (busy) _connectionAction = action;
         if (busy) _connectionOutcome = null;
         Refresh();
 #if DEBUG
-        Dbg.Log($"DevicePage.SetConnectionBusy: busy={busy}");
+        Dbg.Log($"DevicePage.SetConnectionBusy: busy={busy} action={_connectionAction}");
 #endif
     }
 
@@ -151,9 +153,12 @@ public partial class DevicePage : UserControl
         if (App.Bus.IsOpen) _connectionOutcome = null;
         TxtCount.Text = App.Bus.AdapterCount > 0 ? $"{App.Bus.AdapterCount} 个" : "未检测到";
         // 通道/速率运行上下文由左下状态卡承担，这里只表达连接状态与协议（P3 去重）
-        TxtDevState.Text = _connectionBusy ? "正在连接 · I²C" : App.Bus.IsOpen ? "已连接 · I²C" : "未连接";
+        bool disconnecting = _connectionBusy && _connectionAction is ConnectionAction.Disconnect or ConnectionAction.Close;
+        TxtDevState.Text = _connectionBusy
+            ? disconnecting ? "正在断开 · I²C" : "正在连接 · I²C"
+            : App.Bus.IsOpen ? "已连接 · I²C" : "未连接";
         TxtConnectionHint.Text = _connectionBusy
-            ? "正在扫描适配器并初始化当前 I²C 配置。"
+            ? disconnecting ? "正在安全释放适配器与当前 I²C 会话。" : "正在扫描适配器并初始化当前 I²C 配置。"
             : App.Bus.IsOpen
                 ? "适配器已连接，可前往 I²C 页面执行事务。"
                 : _connectionOutcome is not null
@@ -161,14 +166,16 @@ public partial class DevicePage : UserControl
                 : App.Bus.AdapterCount > 0
                     ? "已发现适配器，连接后即可开始使用。"
                     : "未发现兼容适配器，请检查 USB 连接。";
-        BtnDeviceConnect.Content = _connectionBusy ? "连接中…" : App.Bus.IsOpen ? "前往 I²C" : App.Bus.AdapterCount > 0 ? "连接适配器" : "扫描设备";
+        BtnDeviceConnect.Content = _connectionBusy
+            ? disconnecting ? "断开中…" : "连接中…"
+            : App.Bus.IsOpen ? "前往 I²C" : App.Bus.AdapterCount > 0 ? "连接适配器" : "扫描设备";
         BtnDeviceConnect.IsEnabled = !_connectionBusy;
         BtnDeviceConnect.ToolTip = _connectionBusy
-            ? "正在连接，请稍候"
+            ? disconnecting ? "正在断开，请稍候" : "正在连接，请稍候"
             : App.Bus.IsOpen ? "打开 I²C 调试工作区"
             : App.Bus.AdapterCount > 0 ? "扫描并连接已检测到的适配器" : "重新扫描 USB 适配器";
         TxtAdapterHint.Text = _connectionBusy
-            ? "保持窗口打开；连接完成后可直接进入 I²C 工作区。"
+            ? disconnecting ? "正在结束当前会话，请等待设备安全释放。" : "保持窗口打开；连接完成后可直接进入 I²C 工作区。"
             : App.Bus.IsOpen
                 ? "连接已建立。选择“前往 I²C”开始事务调试。"
                 : _connectionOutcome ?? (App.Bus.AdapterCount > 0

@@ -1,6 +1,8 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace GinkgoHost.Native;
 
@@ -140,15 +142,32 @@ public static class GinkgoDriver
 
 /// <summary>
 /// 运行时文件日志：%APPDATA%\GinkgoHost\logs\GinkgoHost_yyyyMMdd.log。
-/// 按天滚动，保留 7 天；写入端保持打开（AutoFlush 每行即刷，崩溃不丢末尾），
-/// 避免高频轮询路径上每行日志都付出打开/关闭文件句柄的系统调用；IO 异常一律吞掉，日志永不影响主流程。
+/// 按天滚动，保留 7 天。调用方只做一次 TryAdd，落盘由后台泵线程按批完成——
+/// 周期读写路径每条事务都会写两三行，同步刷盘会把文件 I/O 压到 UI 线程的 await 续接点上。
+/// 队列有界，满则丢弃并计数，绝不阻塞业务线程；IO 异常一律吞掉，日志永不影响主流程。
+/// 未处理异常与应用退出前用 Flush/Shutdown 把队尾落盘，保留崩溃现场。
 /// </summary>
 public static class Dbg
 {
-    static readonly object _lock = new();
+    /// <summary>待写条目。Line 为 null 的是 Flush 屏障，只负责刷盘并放行等待方。</summary>
+    sealed record Item(string? Line, ManualResetEventSlim? Barrier);
+
+    const int QueueCapacity = 100_000;
+
+    static readonly BlockingCollection<Item> _queue = new(new ConcurrentQueue<Item>(), QueueCapacity);
+    static readonly Thread _pump;
+    static volatile bool _pumpDead; // 泵线程已退出或不可用，Flush 直接放弃等待
+
     static string _cleanedDate = "";
-    static StreamWriter? _writer;
-    static string _writerDate = "";
+    static StreamWriter? _file;
+    static string _fileDate = "";
+    static int _dropped;
+
+    static Dbg()
+    {
+        _pump = new Thread(PumpLoop) { IsBackground = true, Name = "GinkgoHost.DbgLog" };
+        _pump.Start();
+    }
 
     public static string LogDir { get; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -156,23 +175,102 @@ public static class Dbg
 
     public static void Log(string msg)
     {
+        if (_pumpDead) return;
         try
         {
-            var now = DateTime.Now;
-            string date = now.ToString("yyyyMMdd");
-            lock (_lock)
-            {
-                EnsureWriter(date, now);
-                _writer!.WriteLine($"[{now:HH:mm:ss.fff}] {msg}");
-            }
+            string line = $"[{DateTime.Now:HH:mm:ss.fff}] {msg}";
+            // 超时 0：满了就丢，业务线程一次系统调用都不付出
+            if (!_queue.TryAdd(new Item(line, null), TimeSpan.Zero))
+                Interlocked.Increment(ref _dropped);
         }
-        catch { /* 日志失败不影响主流程 */ }
+        catch { /* 队列已完成或极端异常：日志失败不影响主流程 */ }
     }
 
-    /// <summary>按需创建/滚动当日写入端；跨天时先清理过期日志再换文件。</summary>
-    static void EnsureWriter(string date, DateTime now)
+    /// <summary>把队尾日志刷到磁盘。未处理异常和退出路径用；超时即返回，不拖住进程退出。</summary>
+    public static void Flush(TimeSpan? timeout = null)
     {
-        if (_writer is not null && _writerDate == date) return;
+        if (_pumpDead) return;
+        try
+        {
+            var done = new ManualResetEventSlim(false);
+            if (!_queue.TryAdd(new Item(null, done), TimeSpan.FromSeconds(1))) return;
+            done.Wait(timeout ?? TimeSpan.FromSeconds(2));
+            // 故意不 Dispose：超时返回后泵线程仍会 Set() 同一个屏障。
+            // 此处只用 Wait(int) 快路径，不访问 WaitHandle，因此没有内核句柄需要释放。
+        }
+        catch { /* 关闭竞态：日志已尽力落盘 */ }
+    }
+
+    /// <summary>停止接收、排空并关闭写入端。仅在应用 OnExit 调用。</summary>
+    public static void Shutdown()
+    {
+        Flush(TimeSpan.FromSeconds(3));
+        if (_pumpDead) return;
+        try { _queue.CompleteAdding(); }
+        catch { return; }
+        _pump.Join(TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>泵线程：取一条后把当前可用的一批全部落盘，再统一 Flush 一次文件。</summary>
+    static void PumpLoop()
+    {
+        try
+        {
+            foreach (Item first in _queue.GetConsumingEnumerable())
+            {
+                Handle(first);
+                while (_queue.TryTake(out Item? next) && next is not null) Handle(next);
+                try { _file?.Flush(); } catch { }
+            }
+        }
+        catch { /* 意外异常：与正常排空走同一条收尾路径，别把写入端连同句柄留在原地 */ }
+
+        _pumpDead = true;
+        try { _file?.Flush(); } catch { }
+        CloseFile();
+    }
+
+    static void Handle(Item item)
+    {
+        if (item.Line is not null)
+        {
+            try
+            {
+                EnsureWriter();
+                _file!.WriteLine(item.Line);
+            }
+            catch
+            {
+                // 单次 IO 故障（磁盘满/文件被占用）不该终结整个进程的日志：
+                // 丢掉这个写入端，下一条日志会经 EnsureWriter 重新打开，故障消失即自愈。
+                CloseFile();
+                return;
+            }
+        }
+
+        if (item.Barrier is null) return;
+        // 屏障：先把文件刷干净再放行，否则调用方可能在对端仍在缓冲时返回
+        try { _file?.Flush(); } catch { }
+        item.Barrier.Set();
+    }
+
+    static void CloseFile()
+    {
+        try { _file?.Dispose(); } catch { }
+        _file = null;
+        _fileDate = "";
+    }
+
+    /// <summary>按需创建/滚动当日写入端；跨天时先清理过期日志再换文件。仅在泵线程上调用。</summary>
+    static void EnsureWriter()
+    {
+        DateTime now = DateTime.Now;
+        string date = now.ToString("yyyyMMdd");
+        if (_file is not null && _fileDate == date)
+        {
+            ReportDropped();
+            return;
+        }
         Directory.CreateDirectory(LogDir);
         if (_cleanedDate != date)
         {
@@ -181,12 +279,21 @@ public static class Dbg
                 if (File.GetLastWriteTime(f) < now.AddDays(-7))
                     File.Delete(f);
         }
-        _writer?.Dispose();
-        _writer = new StreamWriter(Path.Combine(LogDir, $"GinkgoHost_{date}.log"), append: true)
-        {
-            AutoFlush = true
-        };
-        _writerDate = date;
+        _file?.Dispose();
+        // FileShare.ReadWrite：写入端会活一整个进程周期，默认的 FileShare.Read 会让用户
+        // 在程序运行时打不开当日日志。单实例互斥锁保证只有本进程在追加，放开共享写不会撞车。
+        var stream = new FileStream(Path.Combine(LogDir, $"GinkgoHost_{date}.log"),
+            FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+        _file = new StreamWriter(stream);
+        _fileDate = date;
+        Interlocked.Exchange(ref _dropped, 0); // 新文件重新计数
+    }
+
+    /// <summary>队列溢出过的行数只在下一行前提示一次，避免丢弃变成静默的数据缺失。</summary>
+    static void ReportDropped()
+    {
+        int n = Interlocked.Exchange(ref _dropped, 0);
+        if (n > 0) _file!.WriteLine($"[log] 队列已满，丢弃 {n} 行");
     }
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
@@ -198,6 +305,7 @@ public static class Dbg
         try
         {
             Directory.CreateDirectory(LogDir);
+            Flush(); // 让刚产生的日志在资源管理器里立刻可见
             return ShellExecuteW(IntPtr.Zero, "open", LogDir, "", "", 1 /* SW_SHOWNORMAL */).ToInt64() > 32;
         }
         catch { return false; /* 打开失败不影响主流程 */ }

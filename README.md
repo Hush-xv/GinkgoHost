@@ -120,6 +120,12 @@ dotnet build .\GinkgoHost\GinkgoHost.csproj -c Release
 # 纯数据展示与日志容量检查，不访问硬件
 dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug -- --log-display
 
+# 日志异步落盘检查：写入端不阻塞、Flush 后完整落盘且顺序一致
+dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug -- --log-async
+
+# 事务计数检查：增量维护的成功/失败、方向与连续失败统计与全表重算逐条对比
+dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug -- --log-counters
+
 # 基础冒烟检查。连接 Ginkgo 后会额外打开、初始化并只读扫描总线。
 dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug
 
@@ -128,9 +134,15 @@ dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug -- -
 
 # 对已知从机执行一次读取：地址、寄存器、长度、期望首字节、通道
 dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug -- --probe 49 00 1 77 0
+
+# Total Phase Aardvark 链路验证：枚举、打开、只读扫描、关闭
+dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug -- --aardvark 400
 ```
 
 `--probe` 会访问目标从机，但不会写入。使用前请将示例参数替换为实际硬件参数。
+
+`--aardvark` 只验证 `aardvark.dll` 的加载与调用链路。**当前界面不支持 Aardvark**：所有事务都走 Ginkgo USB-I²C，
+`Native/AardvarkI2c.cs` 与该原生 DLL 随构建分发，仅作为后续扩展的既有铺垫，不构成受支持的设备路径。
 
 ## 排障
 
@@ -144,6 +156,9 @@ dotnet run --project .\GinkgoHost\tests\SmokeTest\SmokeTest.csproj -c Debug -- -
 | 周期读自动停止 | 查看事务日志中的连续失败项；恢复总线后重新启动周期读。 |
 
 日志文件与设置文件的路径可在 **设置** 页复制。发生未处理异常时，优先保留最新日志、目标接线信息和复现步骤。
+
+日志由后台线程批量写入，弹窗报错与退出前会先落盘，因此崩溃现场的末尾记录不会丢。文件以共享方式打开，
+程序运行中即可用编辑器或 `Get-Content -Wait` 实时跟踪。
 
 ## 项目结构
 

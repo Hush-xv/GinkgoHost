@@ -12,7 +12,16 @@ public sealed class I2cTarget : INotifyPropertyChanged
 
     private string _display = "";
     [JsonIgnore]
-    public string Display { get => _display; set { _display = value; OnPropertyChanged(); } }
+    public string Display
+    {
+        get => _display;
+        set
+        {
+            if (string.Equals(_display, value, StringComparison.Ordinal)) return;
+            _display = value;
+            OnPropertyChanged();
+        }
+    }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

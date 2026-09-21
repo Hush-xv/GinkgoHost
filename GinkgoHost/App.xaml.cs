@@ -13,7 +13,7 @@ public partial class App : Application
 {
     // 页面级静态定位：四个页面共享同一条总线和同一份日志，无需引入 DI 框架
     public static I2cService Bus { get; } = new();
-    public static ObservableCollection<LogEntry> Log { get; } = new();
+    public static CappedLogCollection Log { get; } = new();
     public static SettingsService Settings { get; private set; } = null!;
     private Mutex? _instanceMutex;
     private bool _ownsInstanceMutex;
@@ -68,15 +68,20 @@ public partial class App : Application
         {
             Exception root = e.Exception.GetBaseException();
             Dbg.Log($"ERROR UI 未处理异常: {e.Exception}\nROOT {root.GetType().FullName}: {root.Message}");
+            Dbg.Flush(); // 模态框可能长时间挂住这里，期间进程若被结束则队尾日志丢失
             MessageBox.Show($"发生未处理异常，详情见日志文件夹中的最新 .log：\n{root.GetType().Name}: {root.Message}",
                 "GinkgoHost", MessageBoxButton.OK, MessageBoxImage.Error);
             e.Handled = true;
         };
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
             Dbg.Log($"ERROR 致命异常 (terminating={e.IsTerminating}): {e.ExceptionObject}");
+            Dbg.Flush(); // 进程可能立即终止，异步入队的末尾日志必须显式落盘
+        };
         TaskScheduler.UnobservedTaskException += (_, e) =>
         {
             Dbg.Log($"ERROR 未观察任务异常: {e.Exception}");
+            Dbg.Flush();
             e.SetObserved();
         };
     }
@@ -88,6 +93,7 @@ public partial class App : Application
         if (Settings is not null) Settings.Save();
         if (_ownsInstanceMutex) _instanceMutex?.ReleaseMutex();
         _instanceMutex?.Dispose();
+        Dbg.Shutdown(); // 放在最后：上面的总线释放与设置保存仍会写日志
         base.OnExit(e);
     }
 }

@@ -3,11 +3,18 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
     <UserControl.Resources>
+        <!-- 快捷操作是次级命令：圆角 + 透明底 + 细描边，避免比主操作「运行」更抢眼。 -->
         <Style x:Key="QuickCommandStyle" TargetType="ui:Button">
             <Setter Property="MinWidth" Value="0" />
             <Setter Property="Height" Value="30" />
             <Setter Property="Padding" Value="10,2" />
             <Setter Property="FontSize" Value="11" />
+            <Setter Property="CornerRadius" Value="6" />
+        </Style>
+        <Style x:Key="QuickGhostStyle" TargetType="ui:Button" BasedOn="{StaticResource QuickCommandStyle}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
         </Style>
     </UserControl.Resources>
     <Grid Margin="{StaticResource PageContentMargin}">
@@ -29,13 +36,13 @@
                            FontSize="11" Opacity="0.58" Margin="0,3,0,0" TextWrapping="Wrap" />
                 <TextBlock Text="快捷操作" FontSize="10" Opacity="0.48" Margin="0,9,0,0" />
                 <WrapPanel Margin="0,4,0,0">
-                    <ui:Button Content="状态" Tag="status" Click="BtnQuickCommand_Click" Style="{StaticResource QuickCommandStyle}" Margin="0,0,6,6" />
-                    <ui:Button Content="扫描总线" Tag="scan" Click="BtnQuickCommand_Click" Style="{StaticResource QuickCommandStyle}" Margin="0,0,6,6" />
-                    <ui:Button Content="帮助" Tag="help" Click="BtnQuickCommand_Click" Style="{StaticResource QuickCommandStyle}" Margin="0,0,6,6" />
+                    <ui:Button Content="状态" Tag="status" Click="BtnQuickCommand_Click" Style="{StaticResource QuickGhostStyle}" Margin="0,0,6,6" />
+                    <ui:Button Content="扫描总线" Tag="scan" Click="BtnQuickCommand_Click" Style="{StaticResource QuickGhostStyle}" Margin="0,0,6,6" />
+                    <ui:Button Content="帮助" Tag="help" Click="BtnQuickCommand_Click" Style="{StaticResource QuickGhostStyle}" Margin="0,0,6,6" />
                     <ui:Button x:Name="BtnStopRead" Content="停止轮询" Appearance="Danger" Click="BtnStopRead_Click"
                                Style="{StaticResource QuickCommandStyle}" Margin="0,0,6,6" ToolTip="停止正在运行的周期读" />
-                    <ui:Button Content="复制输出" Click="BtnCopyOutput_Click" Style="{StaticResource QuickCommandStyle}" Margin="0,0,6,6" />
-                    <ui:Button Content="清空输出" Click="BtnClearOutput_Click" Style="{StaticResource QuickCommandStyle}" Margin="0,0,0,6" />
+                    <ui:Button Content="复制输出" Click="BtnCopyOutput_Click" Style="{StaticResource QuickGhostStyle}" Margin="0,0,6,6" />
+                    <ui:Button Content="清空输出" Click="BtnClearOutput_Click" Style="{StaticResource QuickGhostStyle}" Margin="0,0,0,6" />
                 </WrapPanel>
                 <CheckBox x:Name="ChkFollowOutput" Content="跟随最新输出" IsChecked="True"
                           Checked="ChkFollowOutput_Changed" Unchecked="ChkFollowOutput_Changed"
@@ -55,13 +62,14 @@
             </Grid.ColumnDefinitions>
             <TextBlock Text="&gt;_" FontFamily="Consolas" VerticalAlignment="Center" Margin="0,0,8,0"
                        Foreground="{DynamicResource AccentFillColorDefaultBrush}" />
-            <ui:TextBox x:Name="TxtIn" Grid.Column="1" FontFamily="Consolas" KeyDown="TxtIn_KeyDown"
+            <ui:TextBox x:Name="TxtIn" Grid.Column="1" FontFamily="Consolas"
                         TextChanged="TxtIn_TextChanged" PlaceholderText="输入命令，例如：read 50 00 8" />
             <ui:Button x:Name="BtnRun" Grid.Column="2" Content="运行" Appearance="Primary" Click="BtnRun_Click"
                        MinWidth="72" Margin="8,0,0,0" />
             <TextBlock x:Name="TxtConsoleState" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="就绪"
                        VerticalAlignment="Center" Margin="0,5,0,0" FontSize="11" Opacity="0.72"
-                       TextWrapping="Wrap" />
+                       TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
+                       ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}" />
         </Grid>
         </Border>
         <Border Grid.Row="1" Padding="8" Style="{StaticResource SubtleSurfaceStyle}">

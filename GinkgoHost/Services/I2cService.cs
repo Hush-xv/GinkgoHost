@@ -44,7 +44,7 @@ public sealed class I2cService : IDisposable
     public uint ClockHz => _clockHz;
     public byte ControlMode => _controlMode;
 
-    /// <summary>IsOpen 变化后触发（连接/断开），供状态栏等订阅。</summary>
+    /// <summary>IsOpen 变化后触发（连接/断开）。始终在 UI 线程上回调，订阅者可直接操作绑定集合。</summary>
     public event Action? StateChanged;
 
     /// <summary>连接保持时修改通道/速率（重新 InitI2C），未连接则仅记忆参数。</summary>
@@ -70,7 +70,7 @@ public sealed class I2cService : IDisposable
                 int ret = ReinitLocked(GinkgoDriver.VII_SUB_ADDR_1BYTE);
                 if (ret == 0)
                 {
-                    StateChanged?.Invoke(); // 速率/通道变了，状态栏同步刷新
+                    RaiseStateChanged(); // 速率/通道变了，状态栏同步刷新
                     Dbg.Log($"ApplyConfigAsync ch={channel} clk={clockHz} mode={controlMode} -> {ret}");
                     return ret;
                 }
@@ -112,7 +112,7 @@ public sealed class I2cService : IDisposable
                 if (count <= 0)
                 {
                     IsOpen = false;
-                    StateChanged?.Invoke();
+                    RaiseStateChanged();
                     return (count, count);
                 }
 
@@ -121,7 +121,7 @@ public sealed class I2cService : IDisposable
                 if (ret != 0)
                 {
                     IsOpen = false;
-                    StateChanged?.Invoke();
+                    RaiseStateChanged();
                     return (count, ret);
                 }
 
@@ -137,7 +137,7 @@ public sealed class I2cService : IDisposable
 #endif
                 }
                 Dbg.Log($"初始化 I2C -> {ret}，IsOpen={IsOpen}");
-                StateChanged?.Invoke();
+                RaiseStateChanged();
                 return (count, ret);
             });
         }
@@ -157,7 +157,7 @@ public sealed class I2cService : IDisposable
                 AdapterInfo = null;
                 int count = GinkgoDriver.VII_ScanDevice(1);
                 AdapterCount = count;
-                StateChanged?.Invoke();
+                RaiseStateChanged();
 #if DEBUG
                 Dbg.Log($"I2cService.ScanAdaptersAsync: count={count}, identityCleared=true");
 #endif
@@ -219,7 +219,7 @@ public sealed class I2cService : IDisposable
                 Dbg.Log($"VII_CloseDevice -> {ret}");
                 IsOpen = false;
                 _initValid = false; // 设备已关，下次连接必须重新初始化
-                StateChanged?.Invoke();
+                RaiseStateChanged();
                 return ret;
             });
         }
@@ -457,6 +457,26 @@ public sealed class I2cService : IDisposable
         }
         catch (OperationCanceledException) { } // 手动停止：正常返回计数
         return (done, null);
+    }
+
+    /// <summary>
+    /// 把状态变更投递到 UI 线程。原生调用全在 Task.Run 线程上完成，订阅者要动绑定集合，
+    /// 因此由服务统一 marshal，而不是每处订阅各写一遍 CheckAccess（漏一处就是偶发跨线程异常）。
+    /// BeginInvoke 异步投递：此刻仍持有 _bus，不能等 UI 回调用完。
+    /// 无 Application（控制台冒烟测试）时直接调用，行为与改造前一致。
+    /// 差异在于订阅者抛出的异常不再沿 await 冒泡回 ConnectAsync，而是落到 UI 线程由 App 的全局钩子记录。
+    /// </summary>
+    private void RaiseStateChanged()
+    {
+        Action? handler = StateChanged;
+        if (handler is null) return;
+        System.Windows.Threading.Dispatcher? dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher is not null && !dispatcher.CheckAccess())
+        {
+            dispatcher.BeginInvoke(handler);
+            return;
+        }
+        handler();
     }
 
     private void EnsureOpen()

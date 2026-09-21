@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
@@ -33,15 +34,23 @@ public partial class I2cPage : UserControl
     private bool _extOperationBusy;
     private bool _wideLayout;
     private bool _compactCommandLayout;
+    private bool _compactTargetFields;
+    private bool _compactTransferFields;
+    private const double InspectorMinWidth = 360;
+    private const double InspectorDefaultWidth = 480;
+    private const double InspectorAbsoluteMaxWidth = 1200;
+    private const double InspectorMainReserve = 520;
     private string _operationAction = string.Empty;
-    private object? _readButtonContent;
-    private object? _writeButtonContent;
     private bool? _lastBusConnection;
     private string? _lastTransactionText;
     private byte[]? _lastReadData;
     private byte? _lastReadAddress;
     private byte? _lastReadRegister;
     private bool _lastReadHasRegister;
+    private readonly System.Windows.Threading.DispatcherTimer _headerLogRefreshTimer;
+    private readonly System.Windows.Threading.DispatcherTimer _layoutRefreshTimer;
+    private bool _extendedRefreshQueued;
+    private bool _suspendExtendedRefresh;
 #if DEBUG
     private string? _lastStatusDebugText;
 #endif
@@ -63,14 +72,33 @@ public partial class I2cPage : UserControl
     public I2cPage()
     {
         InitializeComponent();
-        _readButtonContent = BtnRead.Content;
-        _writeButtonContent = BtnWrite.Content;
+        _headerLogRefreshTimer = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Background, Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(100)
+        };
+        _headerLogRefreshTimer.Tick += (_, _) =>
+        {
+            _headerLogRefreshTimer.Stop();
+            RefreshHeaderRecentLog();
+        };
+        _layoutRefreshTimer = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Background, Dispatcher)
+        {
+            Interval = TimeSpan.FromMilliseconds(60)
+        };
+        _layoutRefreshTimer.Tick += (_, _) =>
+        {
+            _layoutRefreshTimer.Stop();
+            ApplyResponsiveLayout();
+        };
         LogView.Init(App.Log);
+        CmbTarget.ItemsSource = Targets;
         GridReg.ItemsSource = RegTable;
         GridInit.ItemsSource = InitSeq;
-        SizeChanged += (_, _) => ApplyResponsiveLayout();
-        RegTable.CollectionChanged += (_, _) => RefreshExtendedUi();
-        InitSeq.CollectionChanged += (_, _) => RefreshExtendedUi();
+        SizeChanged += (_, _) => QueueResponsiveLayout();
+        RegTable.CollectionChanged += (_, _) => QueueExtendedRefresh();
+        InitSeq.CollectionChanged += (_, _) => QueueExtendedRefresh();
         Loaded += (_, _) =>
         {
             RestoreSettings();
@@ -78,23 +106,55 @@ public partial class I2cPage : UserControl
             RefreshProfiles();
             App.Bus.StateChanged -= OnBusStateChanged;
             App.Bus.StateChanged += OnBusStateChanged;
+            App.Log.CollectionChanged -= OnLogCollectionChanged;
+            App.Log.CollectionChanged += OnLogCollectionChanged;
             RefreshOperationAvailability();
             RefreshBusConnectionBadge();
             RefreshExtendedUi();
+            RefreshHeaderRecentLog();
             ApplyResponsiveLayout();
         };
         Unloaded += (_, _) =>
         {
             App.Bus.StateChanged -= OnBusStateChanged;
-            _scanCts?.Cancel(); // 离开页面时中止进行中的扫描
-            CancelExtendedWork();
+            App.Log.CollectionChanged -= OnLogCollectionChanged;
+            _headerLogRefreshTimer.Stop();
+            _layoutRefreshTimer.Stop();
+            CancelPendingOperations("页面离开");
         };
         ShowExtTab(false); // 初始化模式 Tab 选中样式（XAML 不再硬编码 Primary）
         ShowExtSub("reg");
     }
 
-    /// <summary>中止进行中的总线扫描（供主窗口关闭流程调用，避免 CloseAsync 等待长扫描挂起）。</summary>
-    public void CancelScan() => _scanCts?.Cancel();
+    /// <summary>窗口拖动期间最多每 60 ms 重算一次布局，连续 SizeChanged 不再堆积布局任务。</summary>
+    private void QueueResponsiveLayout()
+    {
+        if (!IsLoaded) return;
+        if (!_layoutRefreshTimer.IsEnabled) _layoutRefreshTimer.Start();
+    }
+
+    /// <summary>集合批量变化合并成一次检查器刷新；Profile 加载期间由提交点统一触发。</summary>
+    private void QueueExtendedRefresh()
+    {
+        if (_suspendExtendedRefresh || _extendedRefreshQueued || !IsLoaded) return;
+        _extendedRefreshQueued = true;
+        Dispatcher.BeginInvoke(() =>
+        {
+            _extendedRefreshQueued = false;
+            if (IsLoaded && !_suspendExtendedRefresh) RefreshExtendedUi(preserveStatus: true);
+        }, System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    /// <summary>中止页面持有的全部长任务；原生事务完成后不再开始下一步。</summary>
+    public void CancelPendingOperations(string reason = "用户停止")
+    {
+        _scanCts?.Cancel();
+        CancelExtendedWork(reason);
+        if (IsLoaded) RefreshExtendedUi();
+#if DEBUG
+        Dbg.Log($"I2cPage.CancelPendingOperations: cancellation requested reason={reason}");
+#endif
+    }
 
     /// <summary>从设备概览进入工作区时落到目标地址，连接后的下一步无需再次寻找输入位置。</summary>
     public void FocusTransactionTarget()
@@ -127,13 +187,23 @@ public partial class I2cPage : UserControl
         // 扩展地址未单独持久化，初始值以 7-bit 写在 XAML 中；加载 8-bit 设置时同步转为显示值。
         if (CmbAddrFmt.SelectedIndex == 1 && Hex.TryParseByte(TxtSlave.Text, out var extAddress) && extAddress <= 0x7F)
             TxtSlave.Text = $"{extAddress << 1:X2}";
-        double ratio = Math.Clamp(s.LogPanelRatio, 0.3, 0.8);
-        LogRow.Height = new GridLength(ratio, GridUnitType.Star);
-        DataRow.Height = new GridLength(1 - ratio, GridUnitType.Star);
+        ApplyWorkspaceRows();
         UpdateSpeedControlsEnabled();
         _loading = false;
         ValidateTargetInputs();
         UpdateExtAddressFormatHint();
+    }
+
+    /// <summary>
+    /// 工作区上下两行的唯一分配点。比例始终以日志区域占比存储。
+    /// 日志为空时不再特殊处理：LogPanel 会画满本行并把占位居中，
+    /// 若把本行收成 Auto，省下的两百像素会全部灌进 HEX 编辑器，只剩四个字节的输入框反而更像坏掉的布局。
+    /// </summary>
+    private void ApplyWorkspaceRows()
+    {
+        double ratio = Math.Clamp(App.Settings.LogPanelRatio, 0.3, 0.8);
+        LogRow.Height = new GridLength(ratio, GridUnitType.Star);
+        DataRow.Height = new GridLength(1 - ratio, GridUnitType.Star);
     }
 
     private void SaveSettings()
@@ -173,10 +243,16 @@ public partial class I2cPage : UserControl
     private void UpdateSpeedControlsEnabled()
     {
         bool sw = CurrentCtrlMode() == GinkgoDriver.VII_SCTL_MODE;
+        bool busIdle = !_operationBusy && !_extOperationBusy && _rowLoops.Count == 0;
+        if (CmbCtrlMode.IsEnabled != busIdle) CmbCtrlMode.IsEnabled = busIdle;
+        if (CmbChannel.IsEnabled != busIdle) CmbChannel.IsEnabled = busIdle;
+        if (TglNonStd.IsEnabled != busIdle) TglNonStd.IsEnabled = busIdle;
         // 互斥：自定义开关占用速率配置时禁用预设下拉，关掉开关才可改
-        CmbSpeed.IsEnabled = !sw && TglNonStd.IsChecked != true;
-        TxtCustomHz.IsEnabled = !sw && TglNonStd.IsChecked == true;
-        BtnApplyHz.IsEnabled = !sw && TglNonStd.IsChecked == true;
+        bool presetEnabled = busIdle && !sw && TglNonStd.IsChecked != true;
+        bool customEnabled = busIdle && !sw && TglNonStd.IsChecked == true;
+        if (CmbSpeed.IsEnabled != presetEnabled) CmbSpeed.IsEnabled = presetEnabled;
+        if (TxtCustomHz.IsEnabled != customEnabled) TxtCustomHz.IsEnabled = customEnabled;
+        if (BtnApplyHz.IsEnabled != customEnabled) BtnApplyHz.IsEnabled = customEnabled;
     }
 
     private uint CurrentHz()
@@ -202,57 +278,116 @@ public partial class I2cPage : UserControl
     /// <summary>宽屏优先增加有效工作区，普通窗口保留用户保存的分栏比例。</summary>
     private void ApplyResponsiveLayout()
     {
+        if (HeaderContextPanel is not null)
+        {
+            bool showTarget = ActualWidth >= 1_240;
+            bool showRecent = ActualWidth >= 1_580;
+            Visibility targetVisibility = showTarget ? Visibility.Visible : Visibility.Collapsed;
+            Visibility recentVisibility = showRecent ? Visibility.Visible : Visibility.Collapsed;
+            if (HeaderContextPanel.Visibility != targetVisibility) HeaderContextPanel.Visibility = targetVisibility;
+            if (HeaderRecentDivider.Visibility != recentVisibility) HeaderRecentDivider.Visibility = recentVisibility;
+            if (HeaderRecentGroup.Visibility != recentVisibility) HeaderRecentGroup.Visibility = recentVisibility;
+        }
+
         bool wide = ActualWidth >= 1_800 && ActualHeight >= 900;
-        if (wide == _wideLayout)
-        {
-            ApplyCommandLayout();
-            return;
-        }
-
+        bool densityChanged = wide != _wideLayout;
         _wideLayout = wide;
-        ControlColumn.MaxWidth = wide ? 720 : 560;
         if (ExtPanel.Visibility == Visibility.Visible)
+            ApplyInspectorWidth();
+
+        if (densityChanged)
         {
-            double width = wide
-                ? Math.Max(App.Settings.ExtPanelWidth, Math.Clamp(ActualWidth * 0.30, 480, 720))
-                : Math.Clamp(App.Settings.ExtPanelWidth, 320, 560);
-            ControlColumn.Width = new GridLength(Math.Min(width, ControlColumn.MaxWidth));
+            ApplyWorkspaceRows();
+
+            GridReg.FontSize = wide ? 13 : 12;
+            GridInit.FontSize = wide ? 13 : 12;
+            System.Windows.Documents.TextElement.SetFontSize(DataOperationsCard, wide ? 13 : 12);
+            Dbg.Log($"I2cPage.ApplyResponsiveLayout: wide={wide} width={ActualWidth:F0} height={ActualHeight:F0}");
         }
-
-        // 上方是事务编辑器、下方是证据流；比例始终以日志区域占比存储。
-        double ratio = Math.Clamp(App.Settings.LogPanelRatio, 0.3, 0.8);
-        LogRow.Height = new GridLength(ratio, GridUnitType.Star);
-        DataRow.Height = new GridLength(1 - ratio, GridUnitType.Star);
-
-        GridReg.FontSize = wide ? 13 : 12;
-        GridInit.FontSize = wide ? 13 : 12;
-        System.Windows.Documents.TextElement.SetFontSize(DataOperationsCard, wide ? 13 : 12);
         ApplyCommandLayout();
-        Dbg.Log($"I2cPage.ApplyResponsiveLayout: wide={wide} width={ActualWidth:F0} height={ActualHeight:F0}");
     }
 
-    /// <summary>操作栏在窄区改为两行，组内 WrapPanel 再按字段换行，避免水平滚动隐藏主操作。</summary>
+    /// <summary>检查器只在视口变小时安全收窄；放大窗口不会覆盖用户保存的宽度。</summary>
+    private void ApplyInspectorWidth(bool reset = false)
+    {
+        double maxWidth = InspectorMaxWidth();
+        double preferred = reset ? InspectorDefaultWidth : App.Settings.ExtPanelWidth;
+        double width = Math.Clamp(preferred, InspectorMinWidth, maxWidth);
+        bool widthChanged = !ControlColumn.Width.IsAbsolute || Math.Abs(ControlColumn.Width.Value - width) > 0.5;
+        if (Math.Abs(ControlColumn.MinWidth - InspectorMinWidth) > 0.5) ControlColumn.MinWidth = InspectorMinWidth;
+        if (Math.Abs(ControlColumn.MaxWidth - maxWidth) > 0.5) ControlColumn.MaxWidth = maxWidth;
+        if (widthChanged) ControlColumn.Width = new GridLength(width);
+#if DEBUG
+        if (widthChanged || reset)
+            Dbg.Log($"I2cPage.ApplyInspectorWidth: reset={reset} preferred={preferred:F0} width={width:F0} max={maxWidth:F0}");
+#endif
+    }
+
+    /// <summary>右侧检查器可扩展，但始终给左侧事务工作区留出可操作宽度。</summary>
+    private double InspectorMaxWidth() =>
+        Math.Clamp(ActualWidth - InspectorMainReserve, InspectorMinWidth, InspectorAbsoluteMaxWidth);
+
+    /// <summary>全宽时保持单行；检查器挤压单个分组时，字段按预设结构整体换行，避免随机掉队。</summary>
     private void ApplyCommandLayout()
     {
-        if (CommandGroups is null || DataTargetGroup is null || DataTransferGroup is null) return;
+        if (CommandGroups is null || DataTargetGroup is null || DataTransferGroup is null ||
+            TargetSavedGroup is null || TransferActions is null) return;
         double sideWidth = ControlColumn.ActualWidth > 0 ? ControlColumn.ActualWidth : ControlColumn.Width.Value;
         double available = ActualWidth - (ExtPanel.Visibility == Visibility.Visible
             ? sideWidth + PanelSplitter.ActualWidth + 12
             : 0);
-        bool compact = available < 1_020;
-        if (compact == _compactCommandLayout) return;
+        // 进入/退出阈值分离，拖动检查器靠近断点时不会来回跳动。
+        bool stackGroups = _compactCommandLayout ? available < 1_060 : available < 1_020;
+        double groupGap = stackGroups ? 0 : 10;
+        double targetWidth = stackGroups ? available : Math.Max(0, (available - groupGap) * 0.60);
+        double transferWidth = stackGroups ? available : Math.Max(0, (available - groupGap) * 0.40);
+        // DataGroupStyle 左右各有 12 px Padding；断点必须按真实内容宽度判断，否则末端按钮会被裁切。
+        double targetContentWidth = Math.Max(0, targetWidth - 24);
+        double transferContentWidth = Math.Max(0, transferWidth - 24);
+        bool compactTarget = _compactTargetFields ? targetContentWidth < 880 : targetContentWidth < 840;
+        bool compactTransfer = _compactTransferFields ? transferContentWidth < 540 : transferContentWidth < 500;
+        // 并排卡片必须保持相同节奏：一侧需要双行时另一侧同步切换，避免上下重心错位。
+        if (!stackGroups && (compactTarget || compactTransfer))
+            compactTarget = compactTransfer = true;
+        if (stackGroups == _compactCommandLayout && compactTarget == _compactTargetFields &&
+            compactTransfer == _compactTransferFields) return;
 
-        _compactCommandLayout = compact;
+        _compactCommandLayout = stackGroups;
+        _compactTargetFields = compactTarget;
+        _compactTransferFields = compactTransfer;
         Grid.SetColumn(DataTargetGroup, 0);
         Grid.SetRow(DataTargetGroup, 0);
-        Grid.SetColumnSpan(DataTargetGroup, compact ? 2 : 1);
-        Grid.SetColumn(DataTransferGroup, compact ? 0 : 1);
-        Grid.SetRow(DataTransferGroup, compact ? 1 : 0);
-        Grid.SetColumnSpan(DataTransferGroup, compact ? 2 : 1);
-        DataTransferGroup.Margin = compact ? new Thickness(0, 6, 0, 0) : new Thickness(10, 0, 0, 0);
+        Grid.SetColumnSpan(DataTargetGroup, stackGroups ? 2 : 1);
+        Grid.SetColumn(DataTransferGroup, stackGroups ? 0 : 1);
+        Grid.SetRow(DataTransferGroup, stackGroups ? 1 : 0);
+        Grid.SetColumnSpan(DataTransferGroup, stackGroups ? 2 : 1);
+        DataTransferGroup.Margin = stackGroups ? new Thickness(0, 6, 0, 0) : new Thickness(10, 0, 0, 0);
+
+        PlaceCommandElement(TargetSavedGroup, 0, 0, compactTarget ? 4 : 1);
+        PlaceCommandElement(TargetAddressGroup, compactTarget ? 1 : 0, compactTarget ? 0 : 1);
+        PlaceCommandElement(TargetFormatGroup, compactTarget ? 1 : 0, compactTarget ? 1 : 2);
+        PlaceCommandElement(TargetRegisterGroup, compactTarget ? 1 : 0, compactTarget ? 2 : 3);
+        TargetAddressGroup.Margin = compactTarget ? new Thickness(0, 7, 8, 0) : new Thickness(0, 0, 8, 0);
+        TargetFormatGroup.Margin = compactTarget ? new Thickness(0, 7, 8, 0) : new Thickness(0, 0, 8, 0);
+        TargetRegisterGroup.Margin = compactTarget ? new Thickness(0, 7, 0, 0) : new Thickness(0);
+
+        PlaceCommandElement(TransferHeading, 0, 0);
+        PlaceCommandElement(TransferLengthGroup, 0, 1);
+        PlaceCommandElement(ChkWriteRead, 0, 2);
+        PlaceCommandElement(TransferActionDivider, 0, 3);
+        PlaceCommandElement(TransferActions, compactTransfer ? 1 : 0, compactTransfer ? 0 : 4, compactTransfer ? 3 : 1);
+        TransferActionDivider.Visibility = compactTransfer ? Visibility.Collapsed : Visibility.Visible;
+        TransferActions.Margin = compactTransfer ? new Thickness(0, 7, 0, 0) : new Thickness(0);
 #if DEBUG
-        Dbg.Log($"I2cPage.ApplyCommandLayout: compact={compact} available={available:F0}");
+        Dbg.Log($"I2cPage.ApplyCommandLayout: stack={stackGroups} targetCompact={compactTarget} transferCompact={compactTransfer} available={available:F0} targetContent={targetContentWidth:F0} transferContent={transferContentWidth:F0}");
 #endif
+    }
+
+    private static void PlaceCommandElement(FrameworkElement element, int row, int column, int columnSpan = 1)
+    {
+        Grid.SetRow(element, row);
+        Grid.SetColumn(element, column);
+        Grid.SetColumnSpan(element, columnSpan);
     }
 
     private void OnBusStateChanged()
@@ -266,11 +401,108 @@ public partial class I2cPage : UserControl
         if (!App.Bus.IsOpen)
         {
             _scanCts?.Cancel(); // 断开后扫描无意义，立即中止
-            CancelExtendedWork();
+            CancelExtendedWork("设备已断开");
         }
         RefreshBusConnectionBadge();
         RefreshOperationAvailability();
         RefreshExtendedUi();
+    }
+
+    /// <summary>顶部会话概览只派生现有 UI/任务状态，不持有第二份业务状态。</summary>
+    private void RefreshHeaderContext(string? activityOverride = null)
+    {
+        if (TxtHeaderTarget is null || TxtI2cConnection is null || DotI2cConnection is null ||
+            TxtAddr is null || TxtSubAddr is null || TxtReadSize is null || CmbAddrFmt is null || ExtPanel is null) return;
+
+        string target;
+        if (TryTargetAddr7() is byte address)
+        {
+            int displayAddress = CmbAddrFmt.SelectedIndex == 1 ? address << 1 : address;
+            if (ExtPanel.Visibility == Visibility.Visible)
+                target = $"0x{displayAddress:X2} · 检查 {RegTable.Count} 项";
+            else
+            {
+                string register = string.IsNullOrWhiteSpace(TxtSubAddr.Text)
+                    ? "RAW"
+                    : Hex.TryParseByte(TxtSubAddr.Text, out byte reg) ? $"Reg 0x{reg:X2}" : "Reg 无效";
+                string length = IsReadSizeValid() ? $"{TxtReadSize.Text.Trim()} B" : "长度无效";
+                target = $"0x{displayAddress:X2} · {register} · {length}";
+            }
+        }
+        else
+        {
+            target = "目标参数待修正";
+        }
+        TxtHeaderTarget.Text = target;
+        TxtHeaderTarget.ToolTip = ExtPanel.Visibility == Visibility.Visible
+            ? $"当前从机与寄存器检查项 · {target}"
+            : $"当前基础事务路径 · {target}";
+
+        bool stopping = _rowLoops.Values.Any(cts => cts.IsCancellationRequested) ||
+                        _extOperationCts?.IsCancellationRequested == true;
+        bool active = _operationBusy || _extOperationBusy || _rowLoops.Count > 0;
+        string activity = activityOverride ?? (!App.Bus.IsOpen ? "未连接"
+            : _scanning ? "扫描中"
+            : stopping ? "停止中"
+            : _extOperationBusy ? string.IsNullOrWhiteSpace(_extOperationAction) ? "任务运行中" : $"{_extOperationAction}中"
+            : _operationBusy ? _operationAction switch
+            {
+                "read" => "读取中",
+                "write" => "写入中",
+                "scan" => "扫描中",
+                "config" => "配置中",
+                _ => "忙碌"
+            }
+            : "空闲");
+        // 连接标签只表达稳定的连接事实；任务文本仅放入提示，避免长度变化推动整条工具栏。
+        string connectionText = App.Bus.IsOpen ? $"已连接 · CH{App.Bus.Channel}" : "未连接";
+        if (TxtI2cConnection.Text != connectionText) TxtI2cConnection.Text = connectionText;
+        TxtI2cConnection.ToolTip = active ? "当前任务独占 I²C 总线" : App.Bus.IsOpen ? "总线可以执行新事务" : "连接适配器后可执行事务";
+        if (active) TxtI2cConnection.ToolTip = $"{activity} · 当前任务独占 I²C 总线";
+        DotI2cConnection.SetResourceReference(System.Windows.Shapes.Shape.FillProperty,
+            !App.Bus.IsOpen ? "TextFillColorSecondaryBrush" : active ? "TxAccentBrush" : "StatusSuccessBrush");
+    }
+
+    private void OnLogCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            Dispatcher.BeginInvoke(QueueHeaderRecentRefresh);
+            return;
+        }
+        QueueHeaderRecentRefresh();
+    }
+
+    /// <summary>周期轮询可在 10 ms 产生一条记录；顶部摘要按 100 ms 合并刷新，避免布局线程被文本更新占满。</summary>
+    private void QueueHeaderRecentRefresh()
+    {
+        if (!IsLoaded) return;
+        if (!_headerLogRefreshTimer.IsEnabled) _headerLogRefreshTimer.Start();
+    }
+
+    private void RefreshHeaderRecentLog()
+    {
+        if (TxtHeaderRecent is null) return;
+        if (App.Log.Count == 0)
+        {
+            TxtHeaderRecent.Text = "尚无事务记录";
+            TxtHeaderRecent.ToolTip = null;
+            return;
+        }
+
+        LogEntry entry = App.Log[^1];
+        string direction = entry.Dir is "RX" or "TX" ? $"{entry.Dir} · " : string.Empty;
+        string address = entry.Addr == "—" ? string.Empty : $" · {entry.Addr}";
+        string elapsed = entry.Ms switch
+        {
+            >= 1000 => $" · {entry.Ms / 1000:F2} s",
+            > 0 => $" · {entry.Ms:F1} ms",
+            _ => string.Empty
+        };
+        string operation = entry.Op == "总线扫描" ? "扫描" : entry.Op;
+        TxtHeaderRecent.Text = $"{direction}{operation}{address} · {entry.RetText}{elapsed}";
+        TxtHeaderRecent.ToolTip = $"{entry.Time} · {entry.Dir} · {entry.Op} · {entry.Addr} · {entry.RetText}{elapsed}\n{entry.DataDisplay}";
     }
 
     /// <summary>总线配置条始终显示真实连接状态，避免只靠页面底部状态推断当前会话是否可用。</summary>
@@ -460,12 +692,27 @@ public partial class I2cPage : UserControl
     /// <summary>配置先下发后持久化。硬件拒绝新参数时恢复控件，保证显示、设置和驱动三者一致。</summary>
     private async Task<int> ApplyCurrentConfigAsync()
     {
+        if (_operationBusy || _extOperationBusy || _rowLoops.Count > 0)
+        {
+            RestoreConfigControlsFromBus();
+            SetLastTransactionStatus("总线忙碌，当前配置未更改");
+#if DEBUG
+            Dbg.Log("I2cPage.ApplyCurrentConfigAsync: blocked because bus is busy");
+#endif
+            return -1;
+        }
+
+        SetOperationBusy(true, "config");
         try
         {
             int ret = await App.Bus.ApplyConfigAsync(CurrentChannel(), CurrentHz(), CurrentCtrlMode());
             if (ret == 0)
             {
                 SaveSettings();
+                SetLastTransactionStatus($"总线配置已应用 · 通道 {CurrentChannel()} · {CurrentHz() / 1000.0:F0} kHz", "StatusSuccessBrush");
+#if DEBUG
+                Dbg.Log($"I2cPage.ApplyCurrentConfigAsync: applied channel={CurrentChannel()} hz={CurrentHz()} mode={CurrentCtrlMode()}");
+#endif
                 return ret;
             }
 
@@ -484,6 +731,10 @@ public partial class I2cPage : UserControl
             Dbg.Log($"I2cPage.ApplyCurrentConfigAsync: invalid config error={ex.Message}");
 #endif
             return -1;
+        }
+        finally
+        {
+            SetOperationBusy(false);
         }
     }
 
@@ -517,16 +768,16 @@ public partial class I2cPage : UserControl
 
     private void SetOperationBusy(bool busy, string action = "")
     {
+        bool scanStateChanged = busy ? action == "scan" : _operationAction == "scan";
         _operationBusy = busy;
         _operationAction = busy ? action : string.Empty;
         Dbg.Log($"I2cPage.SetOperationBusy: busy={busy} action={action}");
-        if (busy && TxtDataStatus is not null)
+        if (busy && TxtDataStatus is not null && action is "scan" or "config")
         {
             TxtDataStatus.Text = action switch
             {
                 "scan" => "正在扫描总线…",
-                "read" => "正在读取数据…",
-                "write" => "正在写入数据…",
+                "config" => "正在应用总线配置…",
                 _ => "正在执行…"
             };
             TxtDataStatus.ClearValue(TextBlock.ForegroundProperty);
@@ -535,48 +786,53 @@ public partial class I2cPage : UserControl
         bool scanBusy = busy && action == "scan";
         if (PnlScanNormal is not null && PnlScanCancel is not null)
         {
-            PnlScanNormal.Visibility = scanBusy ? Visibility.Collapsed : Visibility.Visible;
-            PnlScanCancel.Visibility = scanBusy ? Visibility.Visible : Visibility.Collapsed;
+            PnlScanNormal.Visibility = scanBusy ? Visibility.Hidden : Visibility.Visible;
+            PnlScanCancel.Visibility = scanBusy ? Visibility.Visible : Visibility.Hidden;
         }
         UpdateOperationAvailability();
-        bool reading = busy && action == "read";
-        bool writing = busy && action == "write";
-        BtnRead.Content = reading ? "读取中…" : _readButtonContent;
-        BtnWrite.Content = writing ? "写入中…" : _writeButtonContent;
-        if (reading) BtnRead.ToolTip = "正在读取数据…";
-        if (writing) BtnWrite.ToolTip = "正在写入数据…";
+        if (scanStateChanged)
+        {
+            // 扫描期间只拦截配置输入，不改变控件外观，也不刷新右侧检查器。
+            bool inputEnabled = !scanBusy;
+            CmbCtrlMode.IsHitTestVisible = inputEnabled;
+            CmbChannel.IsHitTestVisible = inputEnabled;
+            CmbSpeed.IsHitTestVisible = inputEnabled;
+            TglNonStd.IsHitTestVisible = inputEnabled;
+            TxtCustomHz.IsHitTestVisible = inputEnabled;
+            BtnApplyHz.IsHitTestVisible = inputEnabled;
+        }
     }
 
     private Stopwatch? _scanSw;
     private bool _scanTargetsChanged;
+    private long _lastScanUiRefreshTimestamp;
 
-    /// <summary>扫描命中回调（后台线程）：编组到 UI 即时入目标下拉，扫描进行中就能选用已发现地址。</summary>
-    private void OnScanHit(byte address)
-    {
-        if (!Dispatcher.CheckAccess())
-        {
-            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
-            Dispatcher.BeginInvoke(() => OnScanHit(address));
-            return;
-        }
-        bool known = Targets.Any(target => target.Address7 == address);
-        UpsertTarget(address, persist: !_scanning);
-        if (!known && _scanning) _scanTargetsChanged = true;
-    }
-
-    /// <summary>扫描回调来自后台线程；只更新界面，不写高频调试日志。</summary>
+    /// <summary>扫描回调先在线程侧限频，再编组到 UI，避免为每个探测地址排队一次布局。</summary>
     private void UpdateScanProgress(int done, int total)
     {
+        long now = Stopwatch.GetTimestamp();
+        long previous = Interlocked.Read(ref _lastScanUiRefreshTimestamp);
+        if (done < total && previous != 0 &&
+            Stopwatch.GetElapsedTime(previous, now) < TimeSpan.FromMilliseconds(100)) return;
+        Interlocked.Exchange(ref _lastScanUiRefreshTimestamp, now);
+
         if (!Dispatcher.CheckAccess())
         {
             if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
-            Dispatcher.BeginInvoke(() => UpdateScanProgress(done, total));
+            Dispatcher.BeginInvoke(() => ApplyScanProgress(done, total),
+                System.Windows.Threading.DispatcherPriority.Background);
             return;
         }
+        ApplyScanProgress(done, total);
+    }
+
+    private void ApplyScanProgress(int done, int total)
+    {
         if (!_scanning || TxtDataStatus is null) return;
         double secs = _scanSw?.Elapsed.TotalSeconds ?? 0;
         int percent = total > 0 ? (int)Math.Round(done * 100.0 / total) : 0;
-        TxtDataStatus.Text = $"扫描中 {done} / {total} · {percent}% · {secs:F1}s";
+        string progress = $"扫描中 {done} / {total} · {percent}% · {secs:F1}s";
+        if (TxtDataStatus.Text != progress) TxtDataStatus.Text = progress;
     }
 
     private void RefreshOperationAvailability()
@@ -607,21 +863,25 @@ public partial class I2cPage : UserControl
         if (BtnScanBus is null || BtnRead is null || BtnWrite is null) return;
         bool connected = App.Bus.IsOpen;
         bool targetValid = IsTargetValid();
-        bool readReady = connected && targetValid && IsReadSizeValid();
-        bool writeReady = connected && targetValid && IsBufferValid();
-        BtnScanBus.IsEnabled = connected;
-        BtnRead.IsEnabled = readReady;
-        BtnWrite.IsEnabled = writeReady;
+        bool extendedBusy = _extOperationBusy || _rowLoops.Count > 0;
+        bool readReady = connected && !extendedBusy && targetValid && IsReadSizeValid();
+        bool writeReady = connected && !extendedBusy && targetValid && IsBufferValid();
+        bool scanReady = connected && !extendedBusy;
+        if (BtnScanBus.IsEnabled != scanReady) BtnScanBus.IsEnabled = scanReady;
+        if (BtnRead.IsEnabled != readReady) BtnRead.IsEnabled = readReady;
+        if (BtnWrite.IsEnabled != writeReady) BtnWrite.IsEnabled = writeReady;
         // 读写是同级协议动作；风险由写入确认表达，不把协议类型固定映射为 Primary。
         BtnWrite.Appearance = Wpf.Ui.Controls.ControlAppearance.Secondary;
         // 忙碌时保留启用外观，避免 Wpf.Ui 的禁用/启用动画造成视觉抖动；
         // 点击和快捷键仍由 IsHitTestVisible 与 _operationBusy 双重拦截。
         // 扫描按钮例外：扫描中必须可点击用于中止。
-        BtnScanBus.IsHitTestVisible = true;
-        BtnRead.IsHitTestVisible = !_operationBusy;
-        BtnWrite.IsHitTestVisible = !_operationBusy;
+        bool transactionHitTest = !_operationBusy && !extendedBusy;
+        if (!BtnScanBus.IsHitTestVisible) BtnScanBus.IsHitTestVisible = true;
+        if (BtnRead.IsHitTestVisible != transactionHitTest) BtnRead.IsHitTestVisible = transactionHitTest;
+        if (BtnWrite.IsHitTestVisible != transactionHitTest) BtnWrite.IsHitTestVisible = transactionHitTest;
         string? unavailableTip = !connected ? "请先在左侧工作区连接适配器"
             : _operationBusy ? "总线忙碌，请稍候"
+            : extendedBusy ? "寄存器任务正在占用总线"
             : null;
         BtnScanBus.ToolTip = unavailableTip ?? "扫描当前通道上的从机地址 (F5)；扫描中按 F5、Esc 或点击可中止";
         BtnRead.ToolTip = unavailableTip ?? (!targetValid ? "请先修正目标地址或寄存器" : !IsReadSizeValid() ? "读取长度应为 1–256" : "读取数据 (Ctrl+R)");
@@ -638,15 +898,16 @@ public partial class I2cPage : UserControl
         int cancelledHitCount = 0;
         string selectedAddress = string.Empty;
         _scanTargetsChanged = false;
+        Interlocked.Exchange(ref _lastScanUiRefreshTimestamp, 0);
         SetOperationBusy(true, "scan");
-        // 扫描按钮接管焦点，避免此前编辑的数据缓冲区继续显示整条焦点边框。
-        BtnScanBus.Focus();
+        // 清除输入焦点但不把焦点交给按钮，避免扫描时出现输入框或按钮的强调色焦点线。
+        Keyboard.ClearFocus();
         Dbg.Log($"I2cPage.ScanBusNow: start channel={App.Settings.Channel}");
         try
         {
             var sw = _scanSw = Stopwatch.StartNew();
-            // 命中地址流式进目标下拉（hit 回调来自后台线程，经 Dispatcher 编排；AddScannedTargets 幂等，收尾不重复）
-            var found = await App.Bus.ScanBusAsync(progress: UpdateScanProgress, hit: OnScanHit, ct: cts.Token);
+            // 驱动层仍逐地址采集；界面在一轮结束后批量接收结果，避免下拉列表连续重绘。
+            var found = await App.Bus.ScanBusAsync(progress: UpdateScanProgress, ct: cts.Token);
             wasCancelled = cts.IsCancellationRequested;
             cancelledHitCount = found.Count;
             int channel = App.Settings.Channel;
@@ -656,7 +917,8 @@ public partial class I2cPage : UserControl
             {
                 int other = 1 - channel;
                 TxtDataStatus.Text = $"当前通道未命中，正在扫描备用通道 {other}";
-                var otherFound = await App.Bus.ScanBusAsync(progress: UpdateScanProgress, channel: other, hit: OnScanHit, ct: cts.Token);
+                Interlocked.Exchange(ref _lastScanUiRefreshTimestamp, 0);
+                var otherFound = await App.Bus.ScanBusAsync(progress: UpdateScanProgress, channel: other, ct: cts.Token);
                 wasCancelled = cts.IsCancellationRequested;
                 cancelledHitCount += otherFound.Count;
                 sw.Stop();
@@ -708,6 +970,7 @@ public partial class I2cPage : UserControl
         {
             if (_scanTargetsChanged) PersistTargets();
             _scanning = false;
+            Interlocked.Exchange(ref _lastScanUiRefreshTimestamp, 0);
             _scanCts = null;
             cts.Dispose();
             SetOperationBusy(false);
@@ -805,6 +1068,7 @@ public partial class I2cPage : UserControl
             ? "寄存器地址有效；留空时为原始读写"
             : "寄存器地址无效：请输入 00–FF，或留空使用原始读写";
         UpdateOperationAvailability();
+        RefreshHeaderContext();
     }
 
     private void ResetDataHint()
@@ -839,7 +1103,7 @@ public partial class I2cPage : UserControl
     /// <summary>最近一次事务状态独立于缓冲区内容，避免读写后出现陈旧的缓冲区语义。</summary>
     private void SetLastTransactionStatus(string text, string? brushResource = null)
     {
-        TxtDataStatus.Text = text;
+        if (TxtDataStatus.Text != text) TxtDataStatus.Text = text;
         if (brushResource is null) TxtDataStatus.ClearValue(TextBlock.ForegroundProperty);
         else TxtDataStatus.SetResourceReference(TextBlock.ForegroundProperty, brushResource);
 #if DEBUG
@@ -990,13 +1254,13 @@ public partial class I2cPage : UserControl
             _scanCts?.Cancel(); // 扫描中再点 = 中止，返回已命中的部分结果
             return;
         }
-        if (_operationBusy || !BtnScanBus.IsEnabled) return;
+        if (_operationBusy || _extOperationBusy || _rowLoops.Count > 0 || !BtnScanBus.IsEnabled) return;
         await ScanBusNow();
     }
 
     private async void BtnWrite_Click(object sender, RoutedEventArgs e)
     {
-        if (_operationBusy || !BtnWrite.IsEnabled) return;
+        if (_operationBusy || _extOperationBusy || _rowLoops.Count > 0 || !BtnWrite.IsEnabled) return;
         SetOperationBusy(true, "write");
         Dbg.Log($"I2cPage.BtnWrite_Click: addr={TxtAddr.Text} reg={TxtSubAddr.Text}");
         try
@@ -1056,7 +1320,7 @@ public partial class I2cPage : UserControl
 
     private async void BtnRead_Click(object sender, RoutedEventArgs e)
     {
-        if (_operationBusy || !BtnRead.IsEnabled) return;
+        if (_operationBusy || _extOperationBusy || _rowLoops.Count > 0 || !BtnRead.IsEnabled) return;
         SetOperationBusy(true, "read");
         Dbg.Log($"I2cPage.BtnRead_Click: addr={TxtAddr.Text} reg={TxtSubAddr.Text} len={TxtReadSize.Text}");
         try
@@ -1225,6 +1489,7 @@ public partial class I2cPage : UserControl
         else TxtReadSize.BorderBrush = ErrorBorderBrush;
         ResetDataHint();
         UpdateOperationAvailability();
+        RefreshHeaderContext();
     }
 
     private void I2cPage_PreviewKeyDown(object sender, KeyEventArgs e)
@@ -1236,6 +1501,16 @@ public partial class I2cPage : UserControl
             e.Handled = true;
 #if DEBUG
             Dbg.Log($"I2cPage.I2cPage_PreviewKeyDown: scan cancel via {e.Key}");
+#endif
+            return;
+        }
+        if (e.Key == Key.Escape && (_extOperationCts is not null || _rowLoops.Count > 0))
+        {
+            CancelExtendedWork("Esc 停止");
+            RefreshExtendedUi();
+            e.Handled = true;
+#if DEBUG
+            Dbg.Log("I2cPage.I2cPage_PreviewKeyDown: extended operation cancel via Escape");
 #endif
             return;
         }
@@ -1292,13 +1567,13 @@ public partial class I2cPage : UserControl
     /// <summary>双击分隔条：扩展工具恢复默认宽度。</summary>
     private void Splitter_DoubleClick(object sender, MouseButtonEventArgs e)
     {
-        if (sender is System.Windows.Controls.GridSplitter { Parent: Grid grid })
-        {
-            grid.ColumnDefinitions[2].Width = new GridLength(480);
-            App.Settings.ExtPanelWidth = 480;
-            App.Settings.Save();
-            Dbg.Log("I2cPage.Splitter_DoubleClick: reset right inspector width to 480");
-        }
+        if (sender is not System.Windows.Controls.GridSplitter) return;
+        App.Settings.ExtPanelWidth = InspectorDefaultWidth;
+        App.Settings.Save();
+        ApplyInspectorWidth(reset: true);
+        ApplyCommandLayout();
+        Dbg.Log($"I2cPage.Splitter_DoubleClick: reset right inspector width to {InspectorDefaultWidth:F0}");
+        e.Handled = true;
     }
 
     private void LogSplitter_DoubleClick(object sender, MouseButtonEventArgs e)
@@ -1318,13 +1593,13 @@ public partial class I2cPage : UserControl
 
     private void PanelSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
     {
-        double width = Math.Clamp(ControlColumn.ActualWidth, 320, _wideLayout ? 720 : 560);
-        if (!_wideLayout)
-        {
-            App.Settings.ExtPanelWidth = width;
-            App.Settings.Save();
-        }
-        Dbg.Log($"I2cPage.PanelSplitter_DragCompleted: width={width:F0} wide={_wideLayout}");
+        double maxWidth = InspectorMaxWidth();
+        double width = Math.Clamp(ControlColumn.ActualWidth, InspectorMinWidth, maxWidth);
+        ControlColumn.Width = new GridLength(width);
+        App.Settings.ExtPanelWidth = width;
+        App.Settings.Save();
+        ApplyCommandLayout();
+        Dbg.Log($"I2cPage.PanelSplitter_DragCompleted: persisted width={width:F0} max={maxWidth:F0}");
     }
 
     private void LogSplitter_DragCompleted(object sender, DragCompletedEventArgs e)
