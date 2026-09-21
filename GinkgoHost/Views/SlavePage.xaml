@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
     <ScrollViewer VerticalScrollBarVisibility="Auto">
-        <StackPanel Margin="{StaticResource PageContentMargin}" MaxWidth="960" HorizontalAlignment="Center">
+        <!-- 与设置/设备页同款版式：左对齐内容列（固定宽度），卡片拉伸填满，不再居中悬浮 -->
+        <StackPanel Margin="{StaticResource PageContentMargin}" Width="760" HorizontalAlignment="Left">
 
             <TextBlock Text="从机模拟" Style="{StaticResource PageTitleStyle}" />
             <TextBlock Text="适配器作为 I²C 从机应答外部主机 · Ctrl+3" Style="{StaticResource PageSubtitleStyle}" />
@@ -12,17 +13,20 @@
             <ui:Card Margin="0,0,0,20" Padding="16,14">
                 <StackPanel>
                     <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition />
+                            <RowDefinition />
+                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="120" />
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="从机地址" Style="{StaticResource FieldLabelStyle}" VerticalAlignment="Center" Margin="0,0,8,0" />
                         <ui:TextBox x:Name="TxtSlaveAddr" Grid.Column="1" FontFamily="Consolas" Text="50"
-                                    MaxLength="2" ToolTip="7 位地址，0x08–0x77" />
-                        <TextBlock Grid.Column="2" Text="硬件 I²C · 通道 0 · 100 kHz" FontSize="11" Opacity="0.55"
-                                   VerticalAlignment="Center" Margin="14,0,0,0" />
+                                    MaxLength="2" HorizontalAlignment="Left" MinWidth="120"
+                                    ToolTip="7 位地址，0x08–0x77" />
+                        <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Text="硬件 I²C · 通道 0 · 100 kHz"
+                                   FontSize="11" Opacity="0.55" Margin="0,6,0,0" />
                     </Grid>
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                         <ui:Button x:Name="BtnSlaveStart" Content="启动从机" Appearance="Primary" MinWidth="104" MinHeight="34"
