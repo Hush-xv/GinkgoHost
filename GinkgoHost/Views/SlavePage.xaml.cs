@@ -28,6 +28,7 @@ public partial class SlavePage : UserControl
     private byte _addr7 = 0x50;
     private byte _channel;
     private int _fails;
+    private int _lastErrLogged;
     private int _rxCount;
 
     // 寄存器映射状态
@@ -144,7 +145,17 @@ public partial class SlavePage : UserControl
         {
             ret = GinkgoDriver.VII_SlaveWriteBytes(GinkgoDriver.VII_USBI2C, 0, _channel, resp, resp.Length);
             if (ret != 0)
-                Dbg.Log($"SlavePage.Start: preload resp ret={ret} ({GinkgoDriver.ErrorName(ret)})");
+            {
+                // 异常关闭（杀进程/拔插）后通道可能残留卡死状态：重走一次从机初始化再试
+                Dbg.Log($"SlavePage.Start: preload ret={ret}, retry after re-init");
+                ret = GinkgoDriver.VII_InitI2C(GinkgoDriver.VII_USBI2C, 0, _channel, ref cfg);
+                if (ret == 0) ret = GinkgoDriver.VII_SlaveWriteBytes(GinkgoDriver.VII_USBI2C, 0, _channel, resp, resp.Length);
+            }
+            if (ret != 0)
+            {
+                _ = GinkgoDriver.VII_CloseDevice(GinkgoDriver.VII_USBI2C, 0);
+                return (ret, $"预载应答失败：{GinkgoDriver.ErrorName(ret)}（可停止后重试或重插适配器）");
+            }
         }
         return (0, "");
     }
@@ -203,13 +214,25 @@ public partial class SlavePage : UserControl
                 {
                     _fails = 0; // 无数据是从机常态
                 }
-                else if (++_fails >= 5)
+                else
+                {
+                    // 非"无数据"的错误：逐条记录，自动停止时能对上原因
+                    if (ret != _lastErrLogged)
+                    {
+                        _lastErrLogged = ret;
+                        Dbg.Log($"SlavePage.PollLoop: SlaveReadBytes ret={ret} ({GinkgoDriver.ErrorName(ret)})");
+                    }
+                    _fails++;
+                }
+
+                if (_fails >= 5)
                 {
                     int lastRet = ret;
+                    Dbg.Log($"SlavePage.PollLoop: auto-stop after {_fails} consecutive errors, last ret={lastRet}");
                     Dispatcher.BeginInvoke(() =>
                     {
-                        SetState($"连续 {_fails} 次失败，从机已自动停止（{GinkgoDriver.ErrorName(lastRet)}）", false);
                         StopSession(announce: false);
+                        SetState($"连续 {_fails} 次驱动错误，已自动停止（{GinkgoDriver.ErrorName(lastRet)}）· 详见调试日志", false);
                     });
                     return;
                 }
