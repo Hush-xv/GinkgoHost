@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -33,6 +34,8 @@ public partial class ConsolePage : UserControl
     private readonly System.Windows.Threading.DispatcherTimer _followOutputTimer;
     private bool _followOutputQueued;
     private CancellationTokenSource? _readLoopCts;
+    private CancellationTokenSource? _scriptCts;
+    private CancellationTokenSource? _sleepCts;
 #if DEBUG
     private string? _lastCommandStateDebugText;
 #endif
@@ -83,6 +86,9 @@ public partial class ConsolePage : UserControl
         Loaded += (_, _) =>
         {
             App.Bus.StateChanged += OnBusStateChanged;
+            // Esc 中止挂窗口级：脚本运行期间 TxtIn 禁用、焦点可能离开页面，页面级监听收不到
+            var host = Window.GetWindow(this);
+            if (host is not null) host.PreviewKeyDown += Page_EscKeyDown;
             UpdateCommandHint();
             UpdateCommandState();
             UpdateReadLoopActionState();
@@ -93,7 +99,11 @@ public partial class ConsolePage : UserControl
         Unloaded += (_, _) =>
         {
             App.Bus.StateChanged -= OnBusStateChanged;
+            var host = Window.GetWindow(this);
+            if (host is not null) host.PreviewKeyDown -= Page_EscKeyDown;
             StopReadLoop(false);
+            StopScript(false);
+            _sleepCts?.Cancel();
             _followOutputTimer.Stop();
             _followOutputQueued = false;
         };
@@ -211,15 +221,19 @@ public partial class ConsolePage : UserControl
         RefreshConsoleSession();
     }
 
+    private void Page_EscKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || (_readLoopCts is null && _scriptCts is null && _sleepCts is null)) return;
+        if (_readLoopCts is not null) StopReadLoop(true);
+        if (_scriptCts is not null) StopScript(true);
+        _sleepCts?.Cancel();
+        e.Handled = true;
+    }
+
     private async void TxtIn_KeyDown(object sender, KeyEventArgs e)
     {
         if (_executing) return;
-        if (e.Key == Key.Escape && _readLoopCts is not null)
-        {
-            StopReadLoop(true);
-            e.Handled = true;
-            return;
-        }
+        // Esc 由页面级 PreviewKeyDown 统一处理（脚本运行时输入框可能禁用）
         if (e.Key == Key.Up)
         {
             if (_history.Count == 0) return;
@@ -315,6 +329,10 @@ public partial class ConsolePage : UserControl
         {
             await Exec(cmd);
         }
+        catch (OperationCanceledException)
+        {
+            Print("延时已取消", Gray);
+        }
         catch (Exception ex)
         {
             Print(ex.Message, Red);
@@ -348,6 +366,8 @@ public partial class ConsolePage : UserControl
                 Print($"write <addr> [reg] <b...>     写，如 write {exampleAddress} 00 de ad", Gray);
                 Print($"readloop <addr> [reg] <len> <ms>  周期读，如 readloop {exampleAddress} 00 8 500", Gray);
                 Print("stop                          停止周期读", Gray);
+                Print("run <文件>                    执行脚本，# 注释、出错即停、Esc 中止", Gray);
+                Print("sleep <ms>                    延时，如 sleep 200（脚本编排用）", Gray);
                 Print("clear                         清屏", Gray);
                 break;
             }
@@ -508,6 +528,36 @@ public partial class ConsolePage : UserControl
 
             case StopCmd:
                 StopReadLoop(true);
+                if (_scriptCts is not null) StopScript(true);
+                _sleepCts?.Cancel();
+                break;
+
+            case SleepCmd sleep:
+            {
+                // 脚本内随脚本中止；手输时 Esc / stop 也能打断，避免长延时锁死输入
+                CancellationTokenSource cts;
+                if (_scriptCts is not null)
+                {
+                    cts = _scriptCts;
+                }
+                else
+                {
+                    _sleepCts = new CancellationTokenSource();
+                    cts = _sleepCts;
+                }
+                try
+                {
+                    await Task.Delay(sleep.Ms, cts.Token);
+                }
+                finally
+                {
+                    if (ReferenceEquals(_sleepCts, cts)) _sleepCts = null;
+                }
+                break;
+            }
+
+            case RunScriptCmd script:
+                await RunScriptAsync(script.Path);
                 break;
         }
     }
@@ -568,6 +618,106 @@ public partial class ConsolePage : UserControl
         UpdateReadLoopActionState();
         Dbg.Log("ConsolePage.StopReadLoop: cancellation requested");
         if (announce) Print("正在停止周期读…", Gray);
+    }
+
+    private void StopScript(bool announce)
+    {
+        if (_scriptCts is null)
+        {
+            if (announce) Print("没有正在运行的脚本", Orange);
+            return;
+        }
+        _scriptCts.Cancel();
+        Dbg.Log("ConsolePage.StopScript: cancellation requested");
+        if (announce) Print("正在中止脚本…", Gray);
+    }
+
+    /// <summary>
+    /// run 脚本：按行走与手工输入相同的 Parse→Exec 链路。# 注释与空行跳过；
+    /// 任一行解析或执行失败即停，避免初始化序列半途而废继续跑后续步骤。
+    /// </summary>
+    private async Task RunScriptAsync(string rawPath)
+    {
+        if (_scriptCts is not null)
+        {
+            Print("已有脚本在运行（Esc 中止后再试）；脚本内不支持嵌套 run", Orange);
+            return;
+        }
+        string path = ResolveScriptPath(rawPath);
+        if (!File.Exists(path))
+        {
+            Print($"找不到脚本文件：{path}", Red);
+            return;
+        }
+        string[] lines;
+        try { lines = File.ReadAllLines(path); }
+        catch (Exception ex)
+        {
+            Print($"读取脚本失败：{ex.Message}", Red);
+            return;
+        }
+
+        _scriptCts = new CancellationTokenSource();
+        Print($"run {path} · {lines.Length} 行", Purple);
+        Dbg.Log($"ConsolePage.RunScriptAsync: start path={path} lines={lines.Length}");
+        int lineno = 0;
+        bool aborted = false;
+        try
+        {
+            foreach (string raw in lines)
+            {
+                lineno++;
+                if (_scriptCts.IsCancellationRequested)
+                {
+                    aborted = true;
+                    break;
+                }
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                var (cmd, err) = CommandParser.Parse(line);
+                if (cmd is null)
+                {
+                    Print($"脚本第 {lineno} 行：{err ?? "解析失败"}", Red);
+                    aborted = true;
+                    break;
+                }
+                _history.Add(line);
+                Print($"> {line}", Cyan);
+                try
+                {
+                    await Exec(cmd);
+                }
+                catch (OperationCanceledException)
+                {
+                    aborted = true;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    Print($"脚本第 {lineno} 行执行失败：{ex.Message}", Red);
+                    aborted = true;
+                    break;
+                }
+            }
+        }
+        finally
+        {
+            _scriptCts.Dispose();
+            _scriptCts = null;
+            Print(aborted ? $"脚本已中止（第 {lineno} 行）" : $"脚本结束 · 共 {lineno} 行", aborted ? Orange : Gray);
+            Dbg.Log($"ConsolePage.RunScriptAsync: ended line={lineno} aborted={aborted}");
+            RefreshConsoleSession();
+        }
+    }
+
+    /// <summary>裸文件名优先到 %APPDATA%\GinkgoHost\scripts\ 下找；绝对路径原样返回。</summary>
+    private static string ResolveScriptPath(string p)
+    {
+        if (Path.IsPathRooted(p)) return p;
+        if (File.Exists(p)) return Path.GetFullPath(p);
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "GinkgoHost", "scripts", p);
     }
 
     private void UpdateReadLoopActionState()

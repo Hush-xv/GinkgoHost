@@ -1,0 +1,43 @@
+name: Bug 反馈 / Bug report
+description: 报告 GinkgoHost 的问题 / Report a problem
+labels: [bug]
+body:
+  - type: dropdown
+    id: version
+    attributes:
+      label: 版本 / Version
+      description: 设置页「关于」或 Release 页可查
+      options:
+        - v0.9.6-beta
+        - v0.9.5-beta
+        - 更早 / older
+        - master 分支自编译 / self-built
+    validations:
+      required: true
+  - type: dropdown
+    id: hardware
+    attributes:
+      label: 硬件 / Hardware
+      options:
+        - Ginkgo VTG200A
+        - 其他 Ginkgo 型号 / other Ginkgo model
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      placeholder: 1. 连接适配器 2. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望与实际表现 / Expected vs actual
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / Logs
+      description: 设置页「打开日志文件夹」，粘贴当天日志末尾若干行

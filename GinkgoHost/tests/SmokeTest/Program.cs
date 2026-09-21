@@ -535,6 +535,11 @@ Check("解析 speed 400",
     CommandParser.Parse("speed 400").Cmd is SpeedCmd s1 && s1.KHz == 400);
 Check("未知命令报错", CommandParser.Parse("bogus").Error != null);
 Check("超长读拒绝", CommandParser.Parse("read 50 999").Error != null);
+Check("解析 sleep 200", CommandParser.Parse("sleep 200").Cmd is SleepCmd sl && sl.Ms == 200);
+Check("sleep 零值拒绝", CommandParser.Parse("sleep 0").Error != null);
+Check("解析 run init.txt", CommandParser.Parse("run init.txt").Cmd is RunScriptCmd run1 && run1.Path == "init.txt");
+Check("解析带空格路径", CommandParser.Parse("run C:\\my dir\\s.txt").Cmd is RunScriptCmd run2 && run2.Path == "C:\\my dir\\s.txt");
+Check("run 缺参数报错", CommandParser.Parse("run").Error != null);
 Check("Profile 名称边界",
     ProfileService.IsValidName("sensor-v2") && !ProfileService.IsValidName("..") &&
     !ProfileService.IsValidName("sensor/profile"));

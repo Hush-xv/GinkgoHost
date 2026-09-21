@@ -20,6 +20,10 @@ public sealed record WriteCmd(byte Addr, byte? Reg, byte[] Data) : Cmd;
 /// <summary>readloop 50 8 500 | readloop 50 00 8 500（最后一项是周期 ms）。</summary>
 public sealed record ReadLoopCmd(byte Addr, byte? Reg, int Len, int PeriodMs) : Cmd;
 public sealed record StopCmd : Cmd;
+/// <summary>sleep <ms>：延时，脚本编排用。</summary>
+public sealed record SleepCmd(int Ms) : Cmd;
+/// <summary>run <文件>：按行执行脚本；# 与空行跳过，出错即停。</summary>
+public sealed record RunScriptCmd(string Path) : Cmd;
 
 /// <summary>
 /// 控制台命令解析（纯函数，可独立测试）。
@@ -49,6 +53,8 @@ public static class CommandParser
                 "write" => ParseWrite(t),
                 "readloop" or "rloop" => ParseReadLoop(t),
                 "stop" => (new StopCmd(), null),
+                "sleep" => ParseSleep(t),
+                "run" => ParseRun(t),
                 _ => (null, $"未知命令 “{t[0]}”，输入 help 查看用法")
             };
         }
@@ -106,5 +112,22 @@ public static class CommandParser
         return t.Length == 5
             ? (new ReadLoopCmd(addr, HexByte(t[2]), len, periodMs), null)
             : (new ReadLoopCmd(addr, null, len, periodMs), null);
+    }
+
+    private static (Cmd?, string?) ParseSleep(string[] t)
+    {
+        if (t.Length != 2) return (null, "用法：sleep <ms>，如 sleep 200");
+        int ms = int.Parse(t[1], CultureInfo.InvariantCulture);
+        if (ms is < 1 or > 600_000) return (null, "延时须在 1–600000 ms 之间");
+        return (new SleepCmd(ms), null);
+    }
+
+    private static (Cmd?, string?) ParseRun(string[] t)
+    {
+        if (t.Length < 2) return (null, "用法：run <文件>，如 run init.txt（脚本内 # 开头为注释）");
+        // 路径可含空格：把首 token 之外的全部拼回去，兼容带引号写法
+        string path = string.Join(" ", t.Skip(1)).Trim().Trim('"');
+        if (path.Length == 0) return (null, "用法：run <文件>，如 run init.txt（脚本内 # 开头为注释）");
+        return (new RunScriptCmd(path), null);
     }
 }

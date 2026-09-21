@@ -1,0 +1,21 @@
+name: 功能建议 / Feature request
+description: 提出新功能或改进 / Suggest an idea
+labels: [enhancement]
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景 / Use case
+      description: 你想完成什么，现在卡在哪一步
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案 / Proposed solution
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 确认 / Checklist
+      options:
+        - label: 已搜索现有 issue，无重复 / searched existing issues
